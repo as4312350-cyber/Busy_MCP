@@ -1,0 +1,30 @@
+name: Bug report
+description: Wrong number, error, or crash
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Please remove party names, amounts and GSTINs you do not want public."
+  - type: input
+    id: version
+    attributes:
+      label: busy-mcp version (`busy-mcp --version`)
+    validations:
+      required: true
+  - type: input
+    id: busy
+    attributes:
+      label: BUSY version and edition (e.g. BUSY 21 Rel 8, Access / SQL)
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did BUSY's own report show?
+    validations:
+      required: true
+  - type: textarea
+    id: check
+    attributes:
+      label: Output of `busy-mcp --check` (anonymised)
+      render: text

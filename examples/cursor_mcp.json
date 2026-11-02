@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "busy": {
+      "command": "C:\\Busy_MCP\\.venv\\Scripts\\busy-mcp.exe",
+      "env": {
+        "BUSY_DATA_DIR": "C:\\BusyWin\\DATA"
+      }
+    }
+  }
+}

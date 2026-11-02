@@ -11,7 +11,7 @@
       "env": {
         "BUSY_SQL_SERVER": "localhost\\SQLEXPRESS",
         "BUSY_SQL_USER": "busy_reader",
-        "BUSY_SQL_PASSWORD": "your-password",
+        "BUSY_SQL_PASSWORD": "change-me",
         "BUSY_COMPANY": "COMP0001"
       }
     }
