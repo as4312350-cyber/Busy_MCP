@@ -354,3 +354,97 @@ jobs:
           if problems:
               sys.exit("FAIL: " + "; ".join(problems))
           print("doctor checks passed")
+
+  scale-network:
+    name: Large company in a network folder (Access over SMB, Windows, 32-bit)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          architecture: x86
+      - name: Install from ready-made packages only, as the installer does
+        run: |
+          python -m pip install "--only-binary=:all:" . pytest
+      # 50,000 sales vouchers (200,000 voucher lines, 50,000 bill references) in a password-protected Access
+      # file in BUSY's layout: RUNNER_TEMP\busy\DATA\COMP0001\db12024.bds
+      - name: Build a large company in BUSY's layout
+        timeout-minutes: 30
+        run: |
+          python scripts/benchmark_access.py --root "$env:RUNNER_TEMP\busy" --vouchers 50000 --build-only
+          if ($LASTEXITCODE -ne 0) { throw "building the benchmark company failed" }
+      # Many offices open BUSY's data from another PC as \\SERVER\share\DATA. Share the folder over SMB and read it
+      # through Windows' network redirector (a loopback to this runner: it proves the path, not LAN latency).
+      - name: Share the data folder over SMB
+        id: share
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "busy"
+          $server = Get-Service LanmanServer
+          Write-Host "SMB server service: $($server.Status)"
+          if ($server.Status -ne "Running") { Start-Service LanmanServer }
+          $named = $false
+          try {
+            New-SmbShare -Name busydata -Path $root -FullAccess Everyone -ErrorAction Stop | Out-Null
+            Write-Host "Option 1: New-SmbShare busydata -> $root"
+            $named = $true
+          } catch {
+            Write-Host "Option 1: New-SmbShare failed: $($_.Exception.Message)"
+            net share "busydata=$root" "/GRANT:Everyone,FULL"
+            $named = $LASTEXITCODE -eq 0
+            Write-Host "Option 1b: net share busydata -> $root $(if ($named) { 'worked' } else { "failed ($LASTEXITCODE)" })"
+          }
+          $candidates = @()
+          if ($named) { $candidates += "\\localhost\busydata\DATA", "\\127.0.0.1\busydata\DATA" }
+          $candidates += ('\\localhost\{0}${1}\DATA' -f $root.Substring(0, 1), $root.Substring(2))  # option 2
+          $working = @()
+          foreach ($path in $candidates) {
+            $ok = Test-Path -LiteralPath (Join-Path $path "COMP0001\db12024.bds")
+            Write-Host ("{0,-45} {1}" -f $path, $(if ($ok) { "works" } else { "does NOT work" }))
+            if ($ok) { $working += $path }
+          }
+          $use = @($working | Where-Object { $_ -like "*\busydata\*" })
+          if ($use.Count -eq 0) { $use = @($working | Select-Object -First 1) }
+          if ($use.Count -eq 0) { throw "no UNC path to the data folder works on this runner" }
+          Write-Host "Benchmarking through: $($use -join ', ')"
+          "NETWORK_DATA_DIR=$($use[0])" >> $env:GITHUB_ENV
+          "NETWORK_DATA_DIRS=$($use -join ';')" >> $env:GITHUB_ENV
+          exit 0   # a failed 'net share' above must not decide this step's result
+      - name: Benchmark the local folder and the network folder
+        timeout-minutes: 30
+        run: |
+          $cli = @("scripts/benchmark_access.py", "--data-dir", (Join-Path $env:RUNNER_TEMP "busy\DATA"))
+          foreach ($path in ($env:NETWORK_DATA_DIRS -split ";")) { $cli += @("--data-dir", $path) }
+          $cli += @("--json", (Join-Path $env:RUNNER_TEMP "busy-benchmark.json"), "--summary-md", $env:GITHUB_STEP_SUMMARY)
+          $cli += @("--assert-max-seconds", "index=180", "--assert-max-seconds", "reports=10")
+          $cli += @("--assert-max-seconds", "change_check_again=10")
+          python @cli
+          if ($LASTEXITCODE -ne 0) { throw "benchmark failed: see the FAIL, ERROR and LIMIT lines above" }
+      - name: Setup and doctor with the network folder, from another working folder
+        if: ${{ !cancelled() && steps.share.outcome == 'success' }}
+        timeout-minutes: 15
+        run: |
+          $unc = $env:NETWORK_DATA_DIR
+          Push-Location $env:RUNNER_TEMP   # AI apps start busy-mcp from another folder
+          try {
+            python -m busy_mcp setup --data-dir $unc --yes --no-claude
+            if ($LASTEXITCODE -ne 0) { throw "setup failed with the network folder $unc" }
+            $saved = (Get-Content (Join-Path $env:APPDATA "busy-mcp\config.json") -Raw | ConvertFrom-Json).data_dir
+            Write-Host "Saved data_dir: $saved"
+            if ($saved -ne $unc) { throw "setup saved data_dir '$saved' instead of '$unc'" }
+            $out = python -m busy_mcp doctor
+            $code = $LASTEXITCODE
+            $out | ForEach-Object { Write-Host $_ }
+            if ($code -ne 0) { throw "doctor exited with $code" }
+            if (-not ($out -match "Result: ready")) { throw "doctor did not print 'Result: ready'" }
+          } finally {
+            Pop-Location
+          }
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: scale-network-results
+          path: ${{ runner.temp }}/busy-benchmark.json

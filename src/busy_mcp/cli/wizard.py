@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import Settings, read_config_file, settings_from, write_config_file
-from ..db import BusyDB, choose_target, discover_targets, find_data_dirs, has_company_folders
+from ..db import BusyDB, choose_target, data_folder_problem, discover_targets, find_data_dirs
 from ..errors import BusyMCPError
 from .clients import claude_desktop_config_path, register_claude_desktop, snippets
 
@@ -66,11 +66,13 @@ def _access_values(args: Any, ui: UI) -> dict[str, Any]:
             folder = found[pick] if pick < len(found) else ui.ask("Full path of the BUSY data folder")
         else:
             ui.say("BUSY data was not found automatically.")
-            ui.say("In BUSY, open Company > 'Set Data Directory' to see the folder (e.g. C:\\BusyWin\\DATA).")
+            ui.say("In BUSY, open Company > 'Set Data Directory' to see the folder (e.g. C:\\BusyWin\\DATA, or "
+                   "\\\\SERVER\\BusyWin\\DATA when the data is on another computer).")
             folder = ui.ask("Full path of the BUSY data folder", Settings().data_dir)
     folder = os.path.abspath(folder.strip().strip('"'))  # AI apps start the server from another folder
-    if not has_company_folders(folder):
-        raise BusyMCPError(f"'{folder}' does not contain BUSY company folders (COMP0001\\db1YYYY.bds).")
+    problem = data_folder_problem(folder)  # says why, e.g. "The network path was not found"
+    if problem:
+        raise BusyMCPError(problem)
     return {"backend": "access", "data_dir": folder}
 
 

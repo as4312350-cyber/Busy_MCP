@@ -1,8 +1,14 @@
-"""Locating BUSY companies and financial-year databases."""
+"""Locating BUSY companies and financial-year databases.
+
+BUSY's data folder is often on another computer (``\\\\SERVER\\BusyWin\\DATA`` or a mapped drive). Folders are
+read with ``os.scandir``: it reports which entries are folders without asking the server about each one again,
+and a folder that can't be opened is reported with Windows' own reason.
+"""
 
 from __future__ import annotations
 
 import datetime as _dt
+import logging
 import os
 import re
 from dataclasses import dataclass
@@ -12,9 +18,75 @@ from ..config import Settings
 from ..errors import BusyConnectionError
 from .drivers import pyodbc_module, sqlserver_conn_str
 
+log = logging.getLogger(__name__)
+
 _FY_FILE_RE = re.compile(r"^db1(\d{4})\.bds$", re.IGNORECASE)
 _COMP_DIR_RE = re.compile(r"^comp\d+$", re.IGNORECASE)
 _SQL_DB_RE = re.compile(r"^busy(comp\d+)_db1(\d{4})$", re.IGNORECASE)
+# \\server\share\... or //server/share/... (not the local device forms \\?\C:\ and \\.\), and \\?\UNC\server\share
+_UNC_RE = re.compile(r"^[\\/]{2}(?![?.][\\/])[^\\/]+[\\/]+[^\\/]+")
+_LONG_UNC_RE = re.compile(r"^[\\/]{2}[?.][\\/]UNC[\\/]+[^\\/]+[\\/]+[^\\/]+", re.IGNORECASE)
+_DRIVE_REMOTE = 4  # GetDriveTypeW: a mapped network drive
+_DATA_DIR_HINT = "Set BUSY_DATA_DIR (BUSY > Company > 'Set Data Directory' shows the path)."
+
+
+def is_unc_path(path: str) -> bool:
+    r"""True for a network path such as ``\\SERVER\BusyWin\DATA`` (also written ``//SERVER/...``)."""
+    text = (path or "").strip().strip('"')
+    return bool(_UNC_RE.match(text) or _LONG_UNC_RE.match(text))
+
+
+def is_network_path(path: str) -> bool:
+    """True if `path` is on another computer: a UNC path, or (Windows) a folder on a mapped network drive."""
+    if is_unc_path(path):
+        return True
+    if os.name != "nt" or not path:
+        return False
+    try:
+        import ctypes
+
+        drive = os.path.splitdrive(os.path.abspath(path.strip().strip('"')))[0]
+        if len(drive) != 2 or drive[1] != ":":
+            return False
+        return int(ctypes.windll.kernel32.GetDriveTypeW(drive + "\\")) == _DRIVE_REMOTE  # type: ignore[attr-defined]
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
+def _folder_error(path: str, exc: OSError) -> str:
+    """Why a data folder can't be listed, in plain words (Windows' own reason included)."""
+    reason = exc.strerror or str(exc)
+    missing = isinstance(exc, (FileNotFoundError, NotADirectoryError))
+    text = f"BUSY data folder {'not found' if missing else 'cannot be read'}: {path} ({reason})."
+    if is_network_path(path):
+        text += (" It is a network folder: the computer that shares it must be switched on, and the Windows user "
+                 "that runs your AI app must be able to open this folder in File Explorer.")
+        if not is_unc_path(path):
+            text += (" Prefer its \\\\SERVER\\share\\... path to the drive letter: a mapped drive belongs to one "
+                     "Windows sign-in and other programs may not see it.")
+    return text
+
+
+def _is_dir(entry: os.DirEntry[str]) -> bool:
+    try:
+        return entry.is_dir()
+    except OSError:
+        return False
+
+
+def _entries(path: str) -> list[os.DirEntry[str]]:
+    with os.scandir(path) as it:
+        return list(it)
+
+
+def _fy_files(company_dir: str) -> list[tuple[str, int]]:
+    """(file name, FY start year) of the financial-year databases in one COMPnnnn folder."""
+    out = []
+    for entry in _entries(company_dir):
+        m = _FY_FILE_RE.match(entry.name)
+        if m:
+            out.append((entry.name, int(m.group(1))))
+    return out
 
 
 def fy_label(fy: int | None) -> str | None:
@@ -86,20 +158,20 @@ def _discover_access(settings: Settings) -> list[Target]:
         comp = os.path.basename(os.path.dirname(path)).upper() or None
         return [Target("access", comp, int(m.group(1)) if m else settings.fy, path)]
     root = settings.data_dir
-    if not os.path.isdir(root):
-        raise BusyConnectionError(
-            f"BUSY data folder not found: {root}. Set BUSY_DATA_DIR "
-            "(BUSY > Company > 'Set Data Directory' shows the path)."
-        )
+    if not root:
+        raise BusyConnectionError(f"No BUSY data folder is configured. {_DATA_DIR_HINT}")
+    try:
+        companies = sorted((e.name, e.path) for e in _entries(root) if _COMP_DIR_RE.match(e.name) and _is_dir(e))
+    except OSError as exc:
+        raise BusyConnectionError(f"{_folder_error(root, exc)} {_DATA_DIR_HINT}") from exc
     targets: list[Target] = []
-    for comp in sorted(os.listdir(root)):
-        cdir = os.path.join(root, comp)
-        if not (os.path.isdir(cdir) and _COMP_DIR_RE.match(comp)):
+    for comp, cdir in companies:
+        try:
+            files = _fy_files(cdir)
+        except OSError as exc:  # one unreadable company must not hide the others
+            log.warning("skipping company folder %s: %s", cdir, exc)
             continue
-        for fname in os.listdir(cdir):
-            m = _FY_FILE_RE.match(fname)
-            if m:
-                targets.append(Target("access", comp.upper(), int(m.group(1)), os.path.join(cdir, fname)))
+        targets += [Target("access", comp.upper(), fy, os.path.join(cdir, fname)) for fname, fy in files]
     targets.sort(key=lambda t: (t.company or "", -(t.fy or 0)))
     return targets
 
@@ -129,16 +201,25 @@ def _discover_sqlserver(settings: Settings) -> list[Target]:
     return targets
 
 
+def data_folder_problem(path: str) -> str | None:
+    """None if `path` is a BUSY data folder (contains COMPnnnn\\db1YYYY.bds), otherwise what is wrong."""
+    try:
+        entries = _entries(path)
+    except OSError as exc:
+        return _folder_error(path, exc)
+    for entry in entries:
+        if _COMP_DIR_RE.match(entry.name) and _is_dir(entry):
+            try:
+                if _fy_files(entry.path):
+                    return None
+            except OSError:
+                continue
+    return f"'{path}' does not contain BUSY company folders (COMP0001\\db1YYYY.bds)."
+
+
 def has_company_folders(path: str) -> bool:
     """True if `path` looks like a BUSY data folder (contains COMPnnnn\\db1YYYY.bds)."""
-    try:
-        for comp in os.listdir(path):
-            cdir = os.path.join(path, comp)
-            if _COMP_DIR_RE.match(comp) and os.path.isdir(cdir) and any(_FY_FILE_RE.match(f) for f in os.listdir(cdir)):
-                return True
-    except OSError:
-        return False
-    return False
+    return data_folder_problem(path) is None
 
 
 def find_data_dirs(extra: list[str] | None = None) -> list[str]:

@@ -30,7 +30,7 @@ from fixtures.busy_fixture import build  # noqa: E402
 
 
 def populate(path: str, vouchers: int, seed: int = 7) -> None:
-    rnd = random.Random(seed)
+    rnd = random.Random(seed)  # noqa: S311 - repeatable synthetic test data, not security
     con = sqlite3.connect(path)
     parties = list(range(10_000, 12_000))
     items = list(range(20_000, 21_000))
