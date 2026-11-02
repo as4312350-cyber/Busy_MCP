@@ -125,3 +125,22 @@ jobs:
       - name: Automatic choice among all Pythons on the machine, ready-made packages only
         shell: cmd
         run: install.cmd -SkipSetup
+
+  access:
+    name: Reports on a real Microsoft Access database (Windows, 32-bit)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          architecture: x86
+      - name: Install from ready-made packages only, as the installer does
+        run: |
+          python -m pip install "--only-binary=:all:" . pytest
+      # The test company is copied into a password-protected Access file in BUSY's layout and read through
+      # Microsoft's own Access ODBC driver, exactly like a user's BUSY data.
+      - name: Report tests against the Access database
+        run: |
+          python -m pytest --backend access -s -W error::ResourceWarning tests/unit/test_reports.py tests/unit/test_features.py

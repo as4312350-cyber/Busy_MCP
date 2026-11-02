@@ -10,6 +10,21 @@ from busy_mcp.db import BusyDB, discover_targets
 from fixtures.busy_fixture import build
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption("--backend", choices=["sqlite", "access"], default="sqlite",
+                     help="where the test company lives: SQLite (default) or a real Microsoft Access database "
+                          "in BUSY's layout (Windows, with an Access ODBC driver of this Python's bitness)")
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    if config.getoption("--backend") == "access":
+        try:
+            import pyodbc
+        except ImportError as exc:
+            pytest.exit(f"--backend access needs Windows with a Microsoft Access ODBC driver ({exc})", returncode=4)
+        pyodbc.pooling = False  # must be set before the first ODBC call; see fixtures/jet_fixture.py
+
+
 @pytest.fixture(autouse=True)
 def _isolated_environment(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory) -> None:
     """Never read the developer's own config file or BUSY_* variables."""
@@ -27,7 +42,12 @@ def db_path(tmp_path_factory: pytest.TempPathFactory) -> str:
 
 
 @pytest.fixture(scope="session")
-def settings(db_path: str) -> Settings:
+def settings(db_path: str, request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory) -> Settings:
+    if request.config.getoption("--backend") == "access":
+        from fixtures.jet_fixture import build_access_company
+
+        data_dir, password = build_access_company(db_path, str(tmp_path_factory.mktemp("access")))
+        return settings_from({"backend": "access", "data_dir": data_dir, "access_password": password, "fy": 2024})
     return settings_from({"backend": "sqlite", "database": db_path, "fy": 2024})
 
 
