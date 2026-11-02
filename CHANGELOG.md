@@ -3,6 +3,20 @@
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] — 2026-11-02
+
+### Fixed
+- CI "Lint, types, security" failed with mypy 2.4 / pydantic 2.14: tool annotations were built with
+  camelCase keyword arguments and the MCP SDK 1.x fallback import confused the type checker. All SDK
+  1.x / 2.x differences now live in `server/_compat.py` (dynamic fallbacks, annotations built from the
+  protocol's wire names), so the code type-checks cleanly against either SDK. No behaviour change.
+
+### Changed
+- CI uses `actions/checkout@v7`, `actions/setup-python@v7` and `actions/upload-artifact@v7` (Node.js 24;
+  removes the Node.js 20 deprecation warning). None of their breaking changes apply to this workflow.
+- Linters and checkers are pinned (`ruff`, `mypy`, `bandit`, `pip-audit`) so local runs and CI always
+  agree; Dependabot proposes upgrades through pull requests that CI checks first.
+
 ## [1.1.0] — 2026-11-02
 
 ### Added — read everything

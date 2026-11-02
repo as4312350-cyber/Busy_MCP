@@ -18,13 +18,8 @@ from typing import Annotated, Any, Literal
 import anyio
 from pydantic import Field
 
-try:  # MCP Python SDK 2.x
-    from mcp.server.mcpserver.exceptions import ToolError
-except ImportError:  # MCP Python SDK 1.x
-    from mcp.server.fastmcp.exceptions import ToolError  # type: ignore[no-redef]
-from mcp.types import ToolAnnotations
-
 from ..errors import BusyMCPError
+from ._compat import ToolError, read_only_annotations
 from .state import State
 
 log = logging.getLogger("busy_mcp.server")
@@ -72,8 +67,7 @@ class Registry:
                 log.info("tool %s ok in %.0f ms", name, (time.perf_counter() - started) * 1000)
                 return _json_safe(result)
 
-            annotations = ToolAnnotations(title=title, readOnlyHint=True, destructiveHint=False,
-                                          idempotentHint=True, openWorldHint=False)
+            annotations = read_only_annotations(title)
             self.mcp.tool(name=name, description=description, annotations=annotations)(wrapper)
             self.names.append(name)
             return fn

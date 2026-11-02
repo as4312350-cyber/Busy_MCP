@@ -4,14 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-try:  # MCP Python SDK 2.x
-    from mcp.server.mcpserver import MCPServer as _Server
-except ImportError:  # MCP Python SDK 1.x
-    from mcp.server.fastmcp import FastMCP as _Server  # type: ignore[no-redef]
-
 from .. import __version__
 from ..config import Settings, load_settings
 from ..schema import SCHEMA_GUIDE
+from ._compat import create_server
 from .prompts import register_prompts
 from .registry import Registry
 from .state import State
@@ -33,10 +29,7 @@ Always pass on `caveat`, `method`, `confidence` and `warning` fields."""
 def build_server(settings: Settings | None = None) -> tuple[Any, State]:
     settings = settings or load_settings()
     state = State(settings)
-    try:
-        mcp = _Server(name="busy-accounting", instructions=INSTRUCTIONS, version=__version__)
-    except TypeError:  # SDK 1.x has no version argument
-        mcp = _Server(name="busy-accounting", instructions=INSTRUCTIONS)
+    mcp = create_server("busy-accounting", INSTRUCTIONS, __version__)
     register_all(Registry(mcp, state))
 
     @mcp.resource("busy://schema-guide", name="BUSY schema guide", mime_type="text/markdown")

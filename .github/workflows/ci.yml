@@ -18,8 +18,8 @@ jobs:
     name: Lint, types, security
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: sudo apt-get update && sudo apt-get install -y unixodbc
@@ -42,8 +42,8 @@ jobs:
         python: ["3.10", "3.13"]
         mcp: ["<2", ">=2"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
       - if: runner.os == 'Linux'
@@ -56,8 +56,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [lint, test]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: pip install build && python -m build
@@ -67,7 +67,7 @@ jobs:
           /tmp/wheel-test/bin/pip install dist/*.whl
           /tmp/wheel-test/bin/busy-mcp --version
           /tmp/wheel-test/bin/python -c "import busy_mcp.server, busy_mcp.cli; print('import ok')"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
