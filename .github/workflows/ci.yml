@@ -24,7 +24,7 @@ jobs:
           python-version: "3.12"
       - run: sudo apt-get update && sudo apt-get install -y unixodbc
       - run: pip install -e ".[dev]"
-      - run: ruff check src tests
+      - run: ruff check src tests scripts
       - run: mypy
       - run: bandit -q -r src -c pyproject.toml
       - name: Audit runtime dependencies
