@@ -141,6 +141,6 @@ jobs:
           python -m pip install "--only-binary=:all:" . pytest
       # The test company is copied into a password-protected Access file in BUSY's layout and read through
       # Microsoft's own Access ODBC driver, exactly like a user's BUSY data.
-      - name: Report tests against the Access database
+      - name: Reports, every MCP tool and the fast index against the Access database
         run: |
-          python -m pytest --backend access -s -W error::ResourceWarning tests/unit/test_reports.py tests/unit/test_features.py
+          python -m pytest --backend access -s -W error::ResourceWarning tests/unit/test_reports.py tests/unit/test_features.py tests/unit/test_app.py tests/unit/test_index_and_freshness.py

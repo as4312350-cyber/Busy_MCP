@@ -56,7 +56,9 @@ def test_conn_strings_modern_driver(monkeypatch):
     cs2 = sqlserver_conn_str(s2, "x")
     assert "UID={busy_reader}" in cs2 and "PWD={p;w}}d}" in cs2
     ac = access_conn_str(Settings(), r"C:\BusyWin\DATA\COMP0001\db12024.bds")
-    assert "ReadOnly=1" in ac and "PWD={ILoveMyINDIA}" in ac
+    # The Access driver keeps braces as part of the password (verified against real Jet in CI): none here.
+    assert "ReadOnly=1" in ac and "PWD=ILoveMyINDIA;" in ac
+    assert "PWD={p;w}" in access_conn_str(Settings(access_password="p;w"), "x.bds")
 
 
 def test_conn_strings_legacy_driver_has_no_application_intent(monkeypatch):

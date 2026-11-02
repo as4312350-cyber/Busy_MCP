@@ -26,6 +26,18 @@ def brace(value: str) -> str:
     return "{" + value.replace("}", "}}") + "}"
 
 
+def access_value(value: str) -> str:
+    """An attribute value for the Microsoft Access driver.
+
+    Unlike the SQL Server drivers, the Access (Jet/ACE) driver keeps braces as part of the value, so
+    ``PWD={ILoveMyINDIA}`` is rejected as "Not a valid password" (seen on a real password-protected .bds
+    in CI). Braces are used only when a value can't be written without them.
+    """
+    if value != value.strip() or any(ch in value for ch in ";{}"):
+        return brace(value)
+    return value
+
+
 def python_bits() -> int:
     return struct.calcsize("P") * 8
 
@@ -89,5 +101,5 @@ def access_conn_str(settings: Settings, path: str) -> str:
         "Exclusive=0",
     ]
     if settings.access_password:
-        parts.append(f"PWD={brace(settings.access_password)}")
+        parts.append(f"PWD={access_value(settings.access_password)}")
     return ";".join(parts) + ";"
