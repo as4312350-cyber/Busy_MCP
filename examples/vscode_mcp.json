@@ -1,0 +1,12 @@
+{
+  "servers": {
+    "busy": {
+      "type": "stdio",
+      "command": "C:\\Busy_MCP\\.venv\\Scripts\\python.exe",
+      "args": [
+        "-m",
+        "busy_mcp"
+      ]
+    }
+  }
+}

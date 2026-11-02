@@ -1,0 +1,24 @@
+name: Schema report (help decode BUSY)
+description: Share anonymised schema facts from your BUSY version so labels can be confirmed
+labels: [schema]
+body:
+  - type: input
+    id: busy
+    attributes:
+      label: BUSY version and edition
+    validations:
+      required: true
+  - type: textarea
+    id: vtypes
+    attributes:
+      label: Output of the `voucher-types` tool (sample numbers may be redacted)
+      render: json
+  - type: textarea
+    id: mtypes
+    attributes:
+      label: Output of the `master-type-summary` tool (names may be redacted)
+      render: json
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything that differs from docs/busy-internals.md
