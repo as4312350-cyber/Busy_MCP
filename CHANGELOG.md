@@ -8,9 +8,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ### Fixed
 - **BUSY's standard (Access) edition could not be opened at all.** busy-mcp sent the `.bds` password as
   `PWD={ILoveMyINDIA}`. Unlike the SQL Server drivers, the Microsoft Access driver keeps the braces as part
-  of the password, so every BUSY company file was rejected with "Not a valid password". Braces are now used
-  only when a password can't be written without them. Found by the new CI job that reads a real
-  password-protected Access file (see Added); the unit test had asserted the braced form.
+  of the password, so BUSY company files, which carry this password by default, were rejected with "Not a
+  valid password". Braces are now used only when a password can't be written without them. Found by the
+  new CI job that reads a real password-protected Access file (see Added); the unit test had asserted the
+  braced form.
 - **Bill numbers and batches were missing on the Access edition.** In Access SQL a bare `No` means False,
   so `SELECT … No …` from `Tran3` returned False instead of the bill or batch number:
   - `bills-outstanding` showed no bill numbers
@@ -19,10 +20,6 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
   Column lists built at run time are now bracketed (`[No]`, `[Date]`) everywhere: bills, orders, batches,
   serial numbers, TDS, BRS openings and company details.
-- CI "Lint, types, security" failed with mypy 2.4 / pydantic 2.14: tool annotations were built with
-  camelCase keyword arguments and the MCP SDK 1.x fallback import confused the type checker. All SDK
-  1.x / 2.x differences now live in `server/_compat.py` (dynamic fallbacks, annotations built from the
-  protocol's wire names), so the code type-checks cleanly against either SDK. No behaviour change.
 - **The installer could pick a Python that cannot work.** It took the newest Python (`py -3`):
   - Python 3.15 failed to install, because pyodbc has no Windows package for it yet and a normal PC can't
     compile one.
@@ -36,6 +33,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   different Python is chosen, with a clear message if Claude Desktop still has it open.
 - The installer installs ready-made packages only, so it never tries to compile something on a PC without
   a compiler, and CI can't pass by compiling something users can't.
+- CI "Lint, types, security" failed with mypy 2.4 / pydantic 2.14: tool annotations were built with
+  camelCase keyword arguments and the MCP SDK 1.x fallback import confused the type checker. All SDK
+  1.x / 2.x differences now live in `server/_compat.py` (dynamic fallbacks, annotations built from the
+  protocol's wire names), so the code type-checks cleanly against either SDK. No behaviour change.
 - `install.cmd` now returns the installer's exit code and only pauses for people (not in CI).
 - `busy-mcp setup` saves folder paths as absolute paths, because AI apps start the server from another folder.
 

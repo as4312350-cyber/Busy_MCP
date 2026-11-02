@@ -18,6 +18,10 @@ bandit -q -r src -c pyproject.toml
 pytest --cov
 ```
 
+On Windows, `pytest --backend access tests/unit` runs the same tests against a real password-protected Access
+copy of the test company through Microsoft's Access driver. Use 32-bit Python to get Windows' built-in Jet
+driver. CI runs this on every push, because SQL that works on SQLite can still fail on Access.
+
 `python scripts/benchmark.py` measures report speed on a synthetic 50,000-voucher company.
 
 ## Layout

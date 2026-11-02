@@ -16,8 +16,10 @@ Ask Claude, ChatGPT, Cursor or any AI assistant about your **BUSY Accounting** b
 BUSY's own company files directly; it cannot change anything in BUSY.
 
 > **Status 1.1.** This release is built on BUSY's schema as decoded from real BUSY databases and production
-> integrations ([docs/busy-internals.md](docs/busy-internals.md)). It has been verified against a test company
-> that uses BUSY's exact table layout, but not yet against every BUSY release. Run `busy-mcp doctor` and
+> integrations ([docs/busy-internals.md](docs/busy-internals.md)). Every change is tested against a test
+> company in BUSY's exact table layout. On Windows, that company is also stored as a real
+> password-protected Access file (`COMP0001\db12024.bds`) and read through Microsoft's own Access driver,
+> exactly as your data is. It hasn't been checked against every BUSY release, so run `busy-mcp doctor` and
 > compare one trial balance with BUSY before relying on it.
 
 ## Install (Windows, about 5 minutes)

@@ -1,9 +1,14 @@
 # Production checklist
 
-busy-mcp is tested automatically on Windows and Linux against a company that uses BUSY's exact table layout.
-What automation cannot do is compare its answers with **your** BUSY data. This checklist does that in about
-15 minutes. Run it once after installing and again after every BUSY upgrade. If every number matches, you
-can rely on it in production.
+Every change to busy-mcp is tested automatically on Windows and Linux against a company that uses BUSY's
+exact table layout:
+- stored as a real password-protected Access file and read through Microsoft's own Access driver with
+  32-bit Python, as on a BUSY PC
+- installed with the same `install.cmd` you use
+
+What automation cannot check is **your** data: your BUSY version, your company's conventions, your volume
+of vouchers. This checklist compares busy-mcp's answers with your BUSY in about 15 minutes. Run it once after
+installing and again after every BUSY upgrade. If every number matches, you can rely on it in production.
 
 ## 1. Install and diagnose (5 minutes)
 
