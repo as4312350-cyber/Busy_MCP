@@ -1,5 +1,5 @@
-"""MCP server: tool definitions (app), HTTP hardening (http) and CLI (cli)."""
+"""MCP server: tool modules (tools/), registry, state, HTTP hardening, prompts."""
 
-from .cli import main
+from .app import build_server
 
-__all__ = ["main"]
+__all__ = ["build_server"]

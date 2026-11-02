@@ -2,10 +2,11 @@
   "servers": {
     "busy": {
       "type": "stdio",
-      "command": "C:\\Busy_MCP\\.venv\\Scripts\\busy-mcp.exe",
-      "env": {
-        "BUSY_DATA_DIR": "C:\\BusyWin\\DATA"
-      }
+      "command": "C:\\Busy_MCP\\.venv\\Scripts\\python.exe",
+      "args": [
+        "-m",
+        "busy_mcp"
+      ]
     }
   }
 }

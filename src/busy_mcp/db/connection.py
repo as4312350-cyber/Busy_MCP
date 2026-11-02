@@ -25,6 +25,7 @@ log = logging.getLogger(__name__)
 T = TypeVar("T")
 
 _SAFE_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_SCHEMA_KEYS = frozenset({"tables"})
 
 
 def clean_value(value: Any) -> Any:
@@ -52,6 +53,7 @@ class Master:
     alias: str | None
     print_name: str | None
     parent: int
+    inactive: bool = False
 
 
 @dataclass
@@ -64,6 +66,9 @@ class BusyDB:
     _masters_at: float = 0.0
     _cache: dict[str, Any] = field(default_factory=dict)
     _columns: dict[str, set[str]] = field(default_factory=dict)
+    _fp: tuple[Any, ...] | None = None
+    _checked_at: float = 0.0
+    stats: dict[str, Any] = field(default_factory=dict)
 
     # ------------------------------------------------------------------ dialect
     @property
@@ -132,6 +137,12 @@ class BusyDB:
                     log.debug("error closing connection", exc_info=True)
                 finally:
                     self._conn = None
+
+    def __enter__(self) -> BusyDB:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
 
     def _connection(self) -> Any:
         if self._conn is None:
@@ -210,6 +221,15 @@ class BusyDB:
     def has_column(self, table: str, column: str) -> bool:
         return column.lower() in self.column_set(table)
 
+    def existing_columns(self, table: str, wanted: Iterable[str]) -> list[str]:
+        """The subset of `wanted` columns present in `table` (original spelling kept)."""
+        have = self.column_set(table)
+        return [c for c in wanted if c.lower() in have]
+
+    def row_count(self, table: str) -> int:
+        real = self.resolve_table(table)
+        return int(self.query(f"SELECT COUNT(*) AS n FROM [{real}]")[0]["n"] or 0)
+
     # ------------------------------------------------------------- conventions
     def active_voucher_filter(self, alias: str = "t1") -> str:
         """SQL fragment (starting with ' AND') excluding cancelled vouchers, built
@@ -222,17 +242,60 @@ class BusyDB:
                 parts.append(f" AND ({alias}.{col} = 0 OR {alias}.{col} IS NULL)")
         return "".join(parts)
 
+    # ------------------------------------------------------- freshness & caching
+    def _fingerprint(self) -> tuple[Any, ...]:
+        """Cheap signature of the data: changes whenever a voucher or master is
+        added, edited (where BUSY records modification times) or deleted."""
+        parts: list[Any] = []
+        for table, key in (("Tran1", "VchCode"), ("Master1", "Code")):
+            extra = ", MAX(ModificationTime) AS mt" if self.has_column(table, "ModificationTime") else ""
+            row = self.query(f"SELECT COUNT(*) AS n, MAX({key}) AS mx{extra} FROM {table}")[0]
+            parts += [row.get("n"), row.get("mx"), row.get("mt")]
+        if self.has_table("Folio1"):
+            row = self.query("SELECT COUNT(*) AS n, SUM(D1) AS s FROM Folio1")[0]
+            parts += [row.get("n"), round(float(row.get("s") or 0), 4)]
+        return tuple(parts)
+
+    def ensure_fresh(self, force: bool = False) -> bool:
+        """Drop derived caches if BUSY data changed. Checks at most every
+        ``freshness_seconds``. Returns True when caches were invalidated."""
+        with self._lock:
+            now = time.time()
+            if not force and now - self._checked_at < self.settings.freshness_seconds:
+                return False
+            self._checked_at = now
+            fp = self._fingerprint()
+            too_old = bool(self.settings.cache_ttl) and now - self._masters_at > self.settings.cache_ttl
+            if force or fp != self._fp or too_old:
+                if self._fp is not None:
+                    log.info("data changed in %s; refreshing caches", self.target.key)
+                self._fp = fp
+                self._masters = None
+                self._cache = {k: v for k, v in self._cache.items() if k in _SCHEMA_KEYS}
+                self.stats["data_changed_at"] = now
+                return True
+            return False
+
     def cached(self, key: str, fn: Callable[[], T]) -> T:
+        """Memoise a derived result until the data changes."""
         with self._lock:
             if key not in self._cache:
+                started = time.perf_counter()
                 self._cache[key] = fn()
+                self.stats.setdefault("build_ms", {})[key] = round((time.perf_counter() - started) * 1000)
             return self._cache[key]  # type: ignore[no-any-return]
+
+    def is_cached(self, key: str) -> bool:
+        return key in self._cache
 
     def masters(self, refresh: bool = False) -> dict[int, Master]:
         with self._lock:
-            expired = self.settings.cache_ttl and time.time() - self._masters_at > self.settings.cache_ttl
-            if refresh or self._masters is None or expired:
-                rows = self.query("SELECT Code, MasterType, Name, Alias, PrintName, ParentGrp FROM Master1")
+            if refresh:
+                self.ensure_fresh(force=True)
+            if self._masters is None:
+                started = time.perf_counter()
+                inactive = ", DeactiveMaster" if self.has_column("Master1", "DeactiveMaster") else ""
+                rows = self.query(f"SELECT Code, MasterType, Name, Alias, PrintName, ParentGrp{inactive} FROM Master1")
                 self._masters = {
                     int(r["code"]): Master(
                         code=int(r["code"]),
@@ -241,15 +304,29 @@ class BusyDB:
                         alias=r.get("alias") or None,
                         print_name=r.get("printname") or None,
                         parent=int(r["parentgrp"] or 0),
+                        inactive=bool(r.get("deactivemaster")),
                     )
                     for r in rows
                     if r.get("code") is not None
                 }
                 self._masters_at = time.time()
-                keep = {k: v for k, v in self._cache.items() if k == "tables"}
-                self._cache = keep
+                self.stats["masters_ms"] = round((time.perf_counter() - started) * 1000)
                 log.info("loaded %d masters from %s", len(self._masters), self.target.key)
             return self._masters
+
+    def cache_info(self) -> dict[str, Any]:
+        with self._lock:
+            return {
+                "masters_loaded": self._masters is not None,
+                "master_count": len(self._masters or {}),
+                "cached_results": sorted(k for k in self._cache if k not in _SCHEMA_KEYS),
+                "last_build_ms": dict(self.stats.get("build_ms", {})),
+                "masters_load_ms": self.stats.get("masters_ms"),
+                "seconds_since_data_change": (
+                    round(time.time() - self.stats["data_changed_at"]) if "data_changed_at" in self.stats else None
+                ),
+                "freshness_check_every_s": self.settings.freshness_seconds,
+            }
 
 
 def _is_disconnect(exc: Exception) -> bool:

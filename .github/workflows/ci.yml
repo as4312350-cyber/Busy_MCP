@@ -49,7 +49,7 @@ jobs:
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y unixodbc
       - run: pip install -e ".[dev]" "mcp${{ matrix.mcp }}"
-      - run: pytest --cov --cov-report=term-missing
+      - run: pytest --cov --cov-report=term-missing -W error::ResourceWarning
 
   build:
     name: Build distribution
@@ -61,6 +61,12 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install build && python -m build
+      - name: Smoke-test the built wheel
+        run: |
+          python -m venv /tmp/wheel-test
+          /tmp/wheel-test/bin/pip install dist/*.whl
+          /tmp/wheel-test/bin/busy-mcp --version
+          /tmp/wheel-test/bin/python -c "import busy_mcp.server, busy_mcp.cli; print('import ok')"
       - uses: actions/upload-artifact@v4
         with:
           name: dist

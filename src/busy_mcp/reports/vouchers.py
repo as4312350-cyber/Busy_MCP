@@ -7,8 +7,20 @@ from typing import Any
 
 from ..db import BusyDB
 from ..errors import ReportError
-from ..schema import MT_LEDGER, RT3_ORDER_LINE, RT_ITEM, RT_LEDGER
+from ..schema import (
+    METHOD_NEW_REF,
+    MT_LEDGER,
+    MT_MATERIAL_CENTRE,
+    MT_PURCHASE_TYPE,
+    MT_SALE_TYPE,
+    RT3_BATCH,
+    RT3_ORDER_LINE,
+    RT_BILL_SUNDRY,
+    RT_LEDGER,
+)
 from ._common import chunks, find_master, int_list, master_name, next_day, paginate, period, r2, vt
+from .explore import decode_row, is_table_blocked
+from .inventory import item_rectypes
 from .overview import narration_source
 
 
@@ -101,7 +113,8 @@ def voucher_details(db: BusyDB, vch_code: int | None = None, vch_no: str | None 
         raise ReportError(f"No voucher with VchCode {vch_code}")
     h = head[0]
     legs = db.query("SELECT * FROM Tran2 WHERE VchCode = ? ORDER BY RecType, SrNo", (int(vch_code),))
-    ledger_lines, item_lines, other = [], [], []
+    item_types = set(item_rectypes(db)[0])
+    ledger_lines, item_lines, sundries, other = [], [], [], []
     for leg in legs:
         name = master_name(masters, leg.get("mastercode1"))
         rt = int(leg.get("rectype") or 0)
@@ -112,7 +125,7 @@ def voucher_details(db: BusyDB, vch_code: int | None = None, vch_no: str | None 
             if leg.get("shortnar"):
                 line["narration"] = leg["shortnar"]
             ledger_lines.append(line)
-        elif rt == RT_ITEM:
+        elif rt in item_types:
             qty = abs(v1)
             value = abs(float(leg.get("value3") or 0))
             line = {"item": name, "qty": r2(qty), "value_excl_tax": r2(value),
@@ -120,7 +133,12 @@ def voucher_details(db: BusyDB, vch_code: int | None = None, vch_no: str | None 
             for src, key in (("d4", "list_price"), ("d9", "discount_pct"), ("d2", "net_rate_incl_tax")):
                 if leg.get(src):
                     line[key] = r2(leg[src])
+            loc = leg.get("mastercode2")
+            if loc and int(loc) in masters and masters[int(loc)].type == MT_MATERIAL_CENTRE:
+                line["material_centre"] = masters[int(loc)].name
             item_lines.append(line)
+        elif rt == RT_BILL_SUNDRY:
+            sundries.append({"bill_sundry": name, "amount": r2(v1)})
         else:
             other.append({"rectype": rt, "master": name, "value1": r2(v1)})
     out: dict[str, Any] = {
@@ -131,8 +149,15 @@ def voucher_details(db: BusyDB, vch_code: int | None = None, vch_no: str | None 
         "goods_value_excl_tax": r2(abs(float(h.get("vchsalepurcamt") or 0))),
         "cancelled": bool(h.get("cancelled") or h.get("vchcancelled")),
     }
-    if h.get("vchseriescode"):
-        out["series"] = master_name(masters, h["vchseriescode"])
+    header_refs: tuple[tuple[str, str, tuple[int, ...] | None], ...] = (
+        ("vchseriescode", "series", None),
+        ("cm1", "sale_purchase_type", (MT_SALE_TYPE, MT_PURCHASE_TYPE)),
+        ("mastercode2", "material_centre", (MT_MATERIAL_CENTRE,)),
+    )
+    for col, key, types in header_refs:
+        code = h.get(col)
+        if code and int(code) in masters and (types is None or masters[int(code)].type in types):
+            out[key] = masters[int(code)].name
     for key in ("createdby", "creationtime", "modifiedby", "modificationtime"):
         if h.get(key):
             out[key] = h[key]
@@ -141,17 +166,50 @@ def voucher_details(db: BusyDB, vch_code: int | None = None, vch_no: str | None 
         out["narration"] = narr
     out["ledger_entries"] = ledger_lines
     out["item_entries"] = item_lines
+    if sundries:
+        out["bill_sundries"] = sundries
     if db.has_table("Tran3"):
-        orders = db.query("SELECT * FROM Tran3 WHERE VchCode = ? AND RecType = ?", (int(vch_code), RT3_ORDER_LINE))
+        refs = db.query("SELECT * FROM Tran3 WHERE VchCode = ?", (int(vch_code),))
+        orders = [r for r in refs if int(r.get("rectype") or 0) == RT3_ORDER_LINE]
         if orders:
             out["order_lines"] = [{"item": master_name(masters, r.get("mastercode1")),
                                    "qty": r2(abs(float(r.get("value1") or 0))), "rate": r2(r.get("value3")),
                                    "amount": r2(abs(float(r.get("newrefamount") or 0)))} for r in orders]
+        bills = [r for r in refs if int(r.get("rectype") or 0) not in (RT3_ORDER_LINE, RT3_BATCH)]
+        if bills:
+            out["bill_references"] = [{
+                "method": "new bill" if int(r.get("method") or 0) == METHOD_NEW_REF else "against bill",
+                "bill_no": r.get("no"), "party": master_name(masters, r.get("mastercode1")),
+                "due_date": r.get("duedate"), "amount": r2(r.get("value1"))} for r in bills]
+    out.update(_attachments(db, int(vch_code)))
     if other:
         out["other_lines"] = other
     if ledger_lines:
         diff = sum(x["debit"] for x in ledger_lines) - sum(x["credit"] for x in ledger_lines)
         out["balanced"] = abs(diff) < 0.01
     if include_raw:
-        out["raw_header"] = {k: v for k, v in h.items() if v not in (None, "", 0, 0.0, False)}
+        out["raw_header"] = decode_row(masters, h)
+    return out
+
+
+_ATTACHMENTS = (
+    ("other_info", "VchOtherInfo"), ("billing_details", "BillingDet"), ("item_descriptions", "ItemDesc"),
+    ("gst_lines", "VchGSTSumItemWise"), ("tds", "TDS"), ("serial_numbers", "ItemSerialNo"),
+    ("batches", "ItemParamDet"), ("pos_payment", "POSDet"), ("packing", "PackingDetails"),
+)
+
+
+def _attachments(db: BusyDB, vch_code: int) -> dict[str, Any]:
+    """Every per-voucher detail table this BUSY version has, decoded and compacted."""
+    masters = db.masters()
+    out: dict[str, Any] = {}
+    for key, table in _ATTACHMENTS:
+        if not db.has_table(table) or not db.has_column(table, "VchCode") or is_table_blocked(db, table):
+            continue
+        real = db.resolve_table(table)
+        rows = db.query(f"SELECT {db.top(200)}* FROM [{real}] WHERE VchCode = ?{db.limit(200)}", (vch_code,))
+        decoded = [d for d in (decode_row(masters, {k: v for k, v in r.items() if k != "vchcode"}) for r in rows) if d]
+        if decoded:
+            out[key] = decoded[0] if key in ("other_info", "billing_details", "pos_payment") and len(decoded) == 1 \
+                else decoded
     return out

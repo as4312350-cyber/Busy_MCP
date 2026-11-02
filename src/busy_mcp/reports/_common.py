@@ -17,7 +17,8 @@ from typing import Any
 
 from ..db import BusyDB, Master, fy_bounds
 from ..errors import ReportError
-from ..schema import MASTER_TYPES, MT_GROUP, MT_LEDGER, RT_LEDGER, vch_type_label
+from ..schema import MT_GROUP, MT_LEDGER, RT_LEDGER, master_type_label, vch_type_label
+from ._index import MovementIndex
 
 EPS = 0.005
 
@@ -120,7 +121,7 @@ def master_name(masters: dict[int, Master], code: Any) -> str | None:
 
 def find_master(db: BusyDB, ref: str | int, types: tuple[int, ...]) -> Master:
     masters = db.masters()
-    kind = "/".join(MASTER_TYPES.get(t, str(t)) for t in types)
+    kind = "/".join(master_type_label(t) for t in types)
     if ref is None or str(ref).strip() == "":
         raise ReportError(f"A {kind} name or code is required")
     pool = [m for m in masters.values() if m.type in types]
@@ -195,30 +196,56 @@ def opening_balances(db: BusyDB, master_type: int = MT_LEDGER) -> dict[int, dict
             slot["d1"] += float(r["d1"] or 0)
             slot["d3"] += float(r["d3"] or 0)
         return out
-    db.masters()  # ensure cache generation is current
     return db.cached(f"folio1:{master_type}", load)
+
+
+LEDGER_INDEX = "index:ledger"
+
+
+def ledger_index(db: BusyDB) -> MovementIndex:
+    """Daily debit/credit totals for every account (built once per data version)."""
+
+    def build() -> MovementIndex:
+        rows = db.query(
+            "SELECT t2.MasterCode1 AS mc, t1.[Date] AS dt, "
+            "SUM(IIF(t2.Value1 < 0, -t2.Value1, 0)) AS dr, SUM(IIF(t2.Value1 > 0, t2.Value1, 0)) AS cr "
+            "FROM Tran2 t2 INNER JOIN Tran1 t1 ON t1.VchCode = t2.VchCode "
+            f"WHERE t2.RecType = {RT_LEDGER}{db.active_voucher_filter('t1')} "
+            "GROUP BY t2.MasterCode1, t1.[Date]"
+        )
+        return MovementIndex(2, (
+            (int(r["mc"]), to_date(r["dt"]), (float(r["dr"] or 0), float(r["cr"] or 0)))
+            for r in rows if r.get("mc") is not None and r.get("dt")
+        ))
+
+    return db.cached(LEDGER_INDEX, build)
 
 
 def ledger_movements(db: BusyDB, start: _dt.date | None, end: _dt.date, ledger: int | None = None
                      ) -> dict[int, tuple[float, float]]:
-    """Debits and credits per account for start..end inclusive -> {code: (dr, cr)}."""
+    """Debits and credits per account for start..end inclusive -> {code: (dr, cr)}.
+
+    Whole-company requests build (or reuse) the movement index; a single-account
+    request uses the index when it already exists, otherwise one indexed query.
+    """
+    if ledger is None or db.is_cached(LEDGER_INDEX):
+        idx = ledger_index(db)
+        if ledger is None:
+            return {c: (v[0], v[1]) for c, v in idx.all_ranges(start, end).items()}
+        dr, cr = idx.range(ledger, start, end)
+        return {ledger: (dr, cr)} if (dr or cr) else {}
     sql = (
-        "SELECT t2.MasterCode1 AS mc, "
-        "SUM(IIF(t2.Value1 < 0, -t2.Value1, 0)) AS dr, "
-        "SUM(IIF(t2.Value1 > 0, t2.Value1, 0)) AS cr "
+        "SELECT SUM(IIF(t2.Value1 < 0, -t2.Value1, 0)) AS dr, SUM(IIF(t2.Value1 > 0, t2.Value1, 0)) AS cr "
         "FROM Tran2 t2 INNER JOIN Tran1 t1 ON t1.VchCode = t2.VchCode "
-        "WHERE t2.RecType = ? AND t1.[Date] < ?" + db.active_voucher_filter("t1")
+        "WHERE t2.RecType = ? AND t2.MasterCode1 = ? AND t1.[Date] < ?" + db.active_voucher_filter("t1")
     )
-    params: list[Any] = [RT_LEDGER, db.dparam(next_day(end))]
+    params: list[Any] = [RT_LEDGER, ledger, db.dparam(next_day(end))]
     if start:
         sql += " AND t1.[Date] >= ?"
         params.append(db.dparam(start))
-    if ledger is not None:
-        sql += " AND t2.MasterCode1 = ?"
-        params.append(ledger)
-    sql += " GROUP BY t2.MasterCode1"
-    return {int(r["mc"]): (float(r["dr"] or 0), float(r["cr"] or 0))
-            for r in db.query(sql, params) if r.get("mc") is not None}
+    row = db.query(sql, params)[0]
+    dr, cr = float(row.get("dr") or 0), float(row.get("cr") or 0)
+    return {ledger: (dr, cr)} if (dr or cr) else {}
 
 
 def fy_start(db: BusyDB) -> _dt.date | None:
@@ -229,19 +256,15 @@ def fy_start(db: BusyDB) -> _dt.date | None:
 def balance_at_start_of(db: BusyDB, code: int, day: _dt.date) -> float:
     """Debit-positive balance of one account at the start of `day`."""
     opening = -opening_balances(db).get(code, {}).get("d1", 0.0)
-    start = fy_start(db)
-    if start is None or day > start:
-        dr, cr = ledger_movements(db, start, day - _dt.timedelta(days=1), ledger=code).get(code, (0.0, 0.0))
-        opening += dr - cr
-    return opening
+    dr, cr = ledger_movements(db, None, day - _dt.timedelta(days=1), ledger=code).get(code, (0.0, 0.0))
+    return opening + dr - cr
 
 
 def balances(db: BusyDB, f: _dt.date, t: _dt.date) -> dict[int, dict[str, float]]:
     """Per account: opening (as at f), debit, credit, closing (as at t); debit positive."""
     masters = db.masters()
     ob = opening_balances(db)
-    start = fy_start(db)
-    before = ledger_movements(db, start, f - _dt.timedelta(days=1)) if (start is None or f > start) else {}
+    before = ledger_movements(db, None, f - _dt.timedelta(days=1))
     during = ledger_movements(db, f, t)
     out: dict[int, dict[str, float]] = {}
     for code, m in masters.items():

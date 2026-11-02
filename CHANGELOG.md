@@ -3,6 +3,78 @@
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] — 2026-11-02
+
+### Added — read everything
+- **Generic access to every BUSY table:**
+  - `catalog`: all tables grouped by BUSY feature, with meaning and confidence
+  - `read-table`: any table without SQL; filters, dates, sort, paging; codes decoded to names; account or
+    item names accepted for code filters
+  - `find`: search names, phones, GSTIN/PAN, e-mail, invoice numbers, narrations, bill/batch/serial numbers
+  - `master-details`: any master of any type, with decoded unit, tax category, MRP, prices, HSN, credit days,
+    balance or stock
+- **New BUSY features covered:**
+  - `bills-outstanding`: bill-by-bill with due dates, overdue aging and reconciliation to the ledger
+  - `pending-orders`, `bank-reconciliation` (clearing dates and BRS openings), `post-dated-cheques`
+  - `stock-by-location` (material centres), `batch-stock` (expiry, MRP), `serial-numbers`
+  - `gst-summary` (output vs input by head; turnover by Sale/Purchase Type), `tds-register`
+  - `audit-trail` (modified / deleted vouchers, change log, user activity)
+- **Fast answers:** `dashboard` (key figures in one call), `ledger-monthly` (account or whole group),
+  `cash-bank-summary`.
+- **`voucher-details` is now end to end:**
+  - header: sale/purchase type, godown, series, audit fields
+  - bill sundries, bill references
+  - GST and TDS lines, serial numbers, batches
+  - billing and transport details, POS payment split, packing
+- Two new prompts: `stock-review`, `audit-check`.
+
+### Performance
+- In-memory **movement index** (per-day prefix sums for every account and item). Reports for any period are
+  answered from memory: about 320 ms down to 4–40 ms per report on a 50,000-voucher test company.
+- **Change detection** replaces fixed expiry: a cheap data fingerprint is checked at most every 10 s, and
+  caches are rebuilt only when BUSY data actually changed.
+- **Prefetch** builds caches in the background at start-up. Voucher-type samples now take one query instead
+  of one per type.
+- `scripts/benchmark.py` reproduces the measurements.
+
+### Easy configuration
+- **`busy-mcp setup`** guides you through setup:
+  - finds BUSY data folders on all drives (or asks for SQL Server details) and tests the connection
+  - lets you pick the default company
+  - saves a config file and registers Claude Desktop (with a backup)
+  - prints snippets for Cursor, VS Code and Claude Code
+- **`busy-mcp doctor`** gives plain-language diagnostics (drivers, bitness, data, index build time, trial
+  balance).
+- **`install.cmd`** is a double-click installer that ends in the setup wizard.
+- Settings can live in a JSON config file; environment variables still override it. `server-info` shows
+  where each setting came from.
+
+### Fixed (correctness)
+- Item lines in RecType 7/20 (used by some BUSY versions) are detected. Independent lines are counted;
+  mirrors of RecType 2 are ignored, so stock is neither missed nor doubled.
+- Voucher type 1 is labelled as opening; more master types are labelled (unit, material centre, sale and
+  purchase type, tax category).
+- `master-details` and `find` show the real type of every master.
+- GST summary takes tax ledgers from "Duties & Taxes" (`BUSY_TAX_GROUPS`), so sales/purchase ledgers named
+  like "Sales GST 18%" are never counted as tax.
+- `stock-by-location` keeps the opening stock of items without godown-wise opening data (shown as
+  "(not allocated)"), so location totals always equal the stock summary.
+
+### Security
+- Credential protection:
+  - the `Config` table (may hold GST portal credentials) is blocked in every generic path
+  - credential-like columns are never returned and can't be filtered or sorted on (no row-count oracle)
+  - raw SQL naming them is rejected (no alias bypass)
+- The setup wizard backs up client configs, writes atomically, refuses invalid JSON, and never writes
+  passwords into client configs.
+- `BusyDB` is a context manager. Tests now fail on unclosed connections.
+
+### Changed
+- `server/` is split into `registry`, `state`, `tools/` (one module per feature area), `prompts` and `http`.
+  The CLI moved to `busy_mcp.cli` with `serve`, `setup` and `doctor` sub-commands. `--check` and `--http`
+  still work.
+- 44 tools (was 27), 5 prompts (was 3), 180 tests (was 101).
+
 ## [1.0.0] — 2026-11-02
 
 ### Fixed (correctness)

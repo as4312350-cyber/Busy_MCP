@@ -129,6 +129,48 @@ def _discover_sqlserver(settings: Settings) -> list[Target]:
     return targets
 
 
+def has_company_folders(path: str) -> bool:
+    """True if `path` looks like a BUSY data folder (contains COMPnnnn\\db1YYYY.bds)."""
+    try:
+        for comp in os.listdir(path):
+            cdir = os.path.join(path, comp)
+            if _COMP_DIR_RE.match(comp) and os.path.isdir(cdir) and any(_FY_FILE_RE.match(f) for f in os.listdir(cdir)):
+                return True
+    except OSError:
+        return False
+    return False
+
+
+def find_data_dirs(extra: list[str] | None = None) -> list[str]:
+    """Best-effort search for BUSY data folders on this PC (Windows drives C: to Z:)."""
+    candidates: list[str] = list(extra or [])
+    if os.name == "nt":
+        import string
+
+        for letter in string.ascii_uppercase[2:]:
+            root = f"{letter}:\\"
+            if not os.path.exists(root):
+                continue
+            bases = [root, os.path.join(root, "Program Files (x86)"), os.path.join(root, "Program Files")]
+            for base in bases:
+                try:
+                    entries = os.listdir(base)
+                except OSError:
+                    continue
+                for entry in entries:
+                    if "busy" in entry.lower():
+                        for sub in ("DATA", "Data", "data", ""):
+                            candidates.append(os.path.join(base, entry, sub))
+    seen: set[str] = set()
+    found = []
+    for c in candidates:
+        key = os.path.normcase(os.path.abspath(c))
+        if key not in seen and os.path.isdir(c) and has_company_folders(c):
+            seen.add(key)
+            found.append(c)
+    return found
+
+
 def choose_target(targets: list[Target], company: str | None, fy: int | None) -> Target:
     if not targets:
         raise BusyConnectionError(

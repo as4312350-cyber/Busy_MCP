@@ -79,6 +79,36 @@ def _strip_literals_and_comments(sql: str) -> str:
     return "".join(out)
 
 
+def referenced_identifiers(sql: str) -> set[str]:
+    """Every identifier the statement could refer to: bare words plus the
+    contents of [bracketed], "double-quoted" and `backtick` identifiers.
+    String literals are excluded."""
+    names: set[str] = set()
+    for m in re.finditer(r"'(?:[^']|'')*'|\[([^\]]+)\]|\"([^\"]+)\"|`([^`]+)`|([A-Za-z_][A-Za-z0-9_$#@]*)", sql):
+        ident = next((g for g in m.groups() if g), None)
+        if ident:
+            names.add(ident.strip().lower())
+    return names
+
+
+_SENSITIVE_IDENT = re.compile(r"(pass(word)?|pwd|secret|token|otp|apikey|api_key|private)", re.IGNORECASE)
+
+
+def check_denied_tables(sql: str, denied: list[str]) -> None:
+    """Reject a statement that mentions a blocked table, or any column/identifier
+    that looks like a credential (aliasing could otherwise bypass output masking)."""
+    idents = referenced_identifiers(sql)
+    hit = sorted(idents & {d.lower() for d in denied})
+    if hit:
+        raise UnsafeQueryError(
+            f"Table {hit[0]} is blocked because it can contain stored credentials "
+            "(an administrator can allow it with BUSY_ALLOW_SENSITIVE=1)"
+        )
+    secret = sorted(i for i in idents if _SENSITIVE_IDENT.search(i))
+    if secret:
+        raise UnsafeQueryError(f"'{secret[0]}' looks like a credential column and cannot be queried")
+
+
 def validate_select(sql: str) -> str:
     """Return the cleaned SQL if it is a single read-only statement, else raise."""
     if not sql or not sql.strip():

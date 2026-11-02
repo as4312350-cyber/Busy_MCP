@@ -1,25 +1,33 @@
 # Connecting AI clients
 
-Replace `C:\Busy_MCP` with the folder you cloned into. In JSON, every backslash is written twice.
+## Claude Desktop (automatic)
 
-## Claude Desktop
+`busy-mcp setup` adds BUSY to Claude Desktop for you. It backs up `claude_desktop_config.json` first and
+keeps any other servers you have. Quit Claude Desktop completely (including from the system tray) and
+open it again.
 
-Go to Settings → Developer → Edit Config. See [`examples/claude_desktop_config.json`](../examples/claude_desktop_config.json)
-for Access and SQL edition entries. Restart Claude after saving.
+To do it by hand, go to Settings → Developer → Edit Config. Every backslash is written twice in JSON:
 
-## Claude Code
-
-```powershell
-claude mcp add busy -e BUSY_DATA_DIR=C:\BusyWin\DATA -- C:\Busy_MCP\.venv\Scripts\busy-mcp.exe
+```json
+{
+  "mcpServers": {
+    "busy": { "command": "C:\\Busy_MCP\\.venv\\Scripts\\python.exe", "args": ["-m", "busy_mcp"] }
+  }
+}
 ```
 
-## Cursor
+## Cursor, VS Code, Claude Code
 
-Add the server to `%USERPROFILE%\.cursor\mcp.json`. See [`examples/cursor_mcp.json`](../examples/cursor_mcp.json).
+`busy-mcp setup` prints ready-to-paste snippets for each. Examples are in
+[`examples/`](../examples):
 
-## VS Code (GitHub Copilot agent mode)
+* **Cursor:** `%USERPROFILE%\.cursor\mcp.json` (see `examples/cursor_mcp.json`)
+* **VS Code (Copilot agent mode):** `.vscode/mcp.json` (see `examples/vscode_mcp.json`)
+* **Claude Code:**
 
-Add the server to `.vscode/mcp.json`. See [`examples/vscode_mcp.json`](../examples/vscode_mcp.json).
+  ```powershell
+  claude mcp add busy -- C:\Busy_MCP\.venv\Scripts\python.exe -m busy_mcp
+  ```
 
 ## ChatGPT and other remote clients
 
@@ -27,11 +35,11 @@ Web apps can't start a program on your PC, so they need an HTTPS URL:
 
 ```powershell
 $env:BUSY_MCP_TOKEN = "<at least 32 random characters>"
-C:\Busy_MCP\.venv\Scripts\busy-mcp.exe --http --host 127.0.0.1 --port 8765
+C:\Busy_MCP\.venv\Scripts\python.exe -m busy_mcp serve --http --host 127.0.0.1 --port 8765
 ```
 
-Expose `http://127.0.0.1:8765/mcp` through an HTTPS tunnel or reverse proxy (Cloudflare Tunnel,
-Caddy, ngrok), and configure the client to send `Authorization: Bearer <token>`.
+Put an HTTPS tunnel or reverse proxy (Cloudflare Tunnel, Caddy, ngrok) in front of
+`http://127.0.0.1:8765/mcp`, and configure the client to send `Authorization: Bearer <token>`.
 
 **Think before you do this:**
 * Your books leave your network and go to the AI provider.

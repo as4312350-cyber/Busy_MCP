@@ -39,13 +39,14 @@ async def _session_run(db_path: str, body: Any) -> None:
 def test_tools_are_all_read_only(db_path):
     async def body(s: ClientSession) -> None:
         tools = {t.name: t for t in (await s.list_tools()).tools}
-        assert len(tools) == 27
+        assert len(tools) == 44
         for t in tools.values():
             assert _hint(t, "readOnlyHint") is True
             assert _hint(t, "destructiveHint") is False
         assert not any(k in n for n in tools for k in ("create", "delete", "update", "write", "insert"))
         prompts = {p.name for p in (await s.list_prompts()).prompts}
-        assert prompts == {"financial-health-check", "receivables-follow-up", "month-end-review"}
+        assert prompts == {"financial-health-check", "receivables-follow-up", "month-end-review", "stock-review",
+                           "audit-check"}
 
     anyio.run(_session_run, db_path, body)
 

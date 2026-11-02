@@ -1,17 +1,20 @@
 {
   "mcpServers": {
     "busy": {
-      "command": "C:\\Busy_MCP\\.venv\\Scripts\\busy-mcp.exe",
-      "env": {
-        "BUSY_DATA_DIR": "C:\\BusyWin\\DATA"
-      }
+      "command": "C:\\Busy_MCP\\.venv\\Scripts\\python.exe",
+      "args": [
+        "-m",
+        "busy_mcp"
+      ]
     },
     "busy-sql": {
-      "command": "C:\\Busy_MCP\\.venv\\Scripts\\busy-mcp.exe",
+      "command": "C:\\Busy_MCP\\.venv\\Scripts\\python.exe",
+      "args": [
+        "-m",
+        "busy_mcp"
+      ],
       "env": {
         "BUSY_SQL_SERVER": "localhost\\SQLEXPRESS",
-        "BUSY_SQL_USER": "busy_reader",
-        "BUSY_SQL_PASSWORD": "change-me",
         "BUSY_COMPANY": "COMP0001"
       }
     }

@@ -45,3 +45,30 @@ def test_allowed(sql):
 def test_blocked(sql):
     with pytest.raises(UnsafeQueryError):
         validate_select(sql)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM Config",
+    "SELECT * FROM [config]",
+    'SELECT * FROM "CONFIG"',
+    "SELECT c.C1 FROM Master1 m INNER JOIN Config c ON c.RecType = m.Code",
+])
+def test_denied_tables_are_rejected_in_any_spelling(sql):
+    from busy_mcp.sqlguard import check_denied_tables
+
+    with pytest.raises(UnsafeQueryError, match="blocked"):
+        check_denied_tables(sql, ["Config"])
+
+
+def test_denied_table_name_inside_a_string_is_fine():
+    from busy_mcp.sqlguard import check_denied_tables
+
+    check_denied_tables("SELECT * FROM Master1 WHERE Name = 'Config'", ["Config"])
+
+
+@pytest.mark.parametrize("sql", ["SELECT Password AS p FROM Users", "SELECT [UserPwd] FROM X", "SELECT apikey FROM t"])
+def test_credential_like_identifiers_are_rejected(sql):
+    from busy_mcp.sqlguard import check_denied_tables
+
+    with pytest.raises(UnsafeQueryError, match="credential"):
+        check_denied_tables(sql, ["Config"])
