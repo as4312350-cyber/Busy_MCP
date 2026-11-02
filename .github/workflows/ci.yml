@@ -348,7 +348,7 @@ jobs:
           code, out = doctor(jet)
           if fmt == "mdb" and (code != 0 or f"busy-mcp will use '{jet}'" not in out):
               problems.append("doctor through Jet must read the .mdb file")
-          if fmt == "accdb" and (code != 1 or "Unrecognized database format" not in out
+          if fmt == "accdb" and (code != 1 or not ("Unrecognized database format" in out or "(-1028)" in out)
                                  or "[INFO] Fix: this BUSY file needs the Microsoft Access Database Engine (ACE)" not in out):
               problems.append("doctor through Jet must fail on the .accdb file with the ACE fix")
           if problems:

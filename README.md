@@ -15,12 +15,15 @@ Ask Claude, ChatGPT, Cursor or any AI assistant about your **BUSY Accounting** b
 `busy-mcp` is a **read-only** [Model Context Protocol](https://modelcontextprotocol.io) server. It reads
 BUSY's own company files directly; it cannot change anything in BUSY.
 
-> **Status 1.1.** This release is built on BUSY's schema as decoded from real BUSY databases and production
+> **Status 1.2.** This release is built on BUSY's schema as decoded from real BUSY databases and production
 > integrations ([docs/busy-internals.md](docs/busy-internals.md)). Every change is tested against a test
-> company in BUSY's exact table layout. On Windows, that company is also stored as a real
-> password-protected Access file (`COMP0001\db12024.bds`) and read through Microsoft's own Access driver,
-> exactly as your data is. It hasn't been checked against every BUSY release, so run `busy-mcp doctor` and
-> compare one trial balance with BUSY before relying on it.
+> company in BUSY's exact table layout. On Windows, CI also runs it as a real password-protected Access file
+> (`COMP0001\db12024.bds`):
+> * through Windows' own Jet driver and through Microsoft's Access Database Engine;
+> * in both the older `.mdb` and the newer `.accdb` format;
+> * for a 50,000-voucher company read from a network folder.
+>
+> It hasn't been checked against every BUSY release. Run `busy-mcp verify` on your data before relying on it.
 
 ## Install (Windows, about 5 minutes)
 

@@ -3,6 +3,51 @@
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] — 2026-11-02
+
+### Added
+- **`busy-mcp verify`**: run once on the BUSY PC.
+  - Checks your own data and prints PASS / WARN / FAIL in plain words:
+    - every voucher balances;
+    - the trial balance tallies, or the difference is explained;
+    - the fast index equals a direct read;
+    - bill-wise pending equals ledger balances;
+    - stock adds up;
+    - opening balances were carried forward.
+  - Then prints the five numbers to compare with BUSY's own screens.
+  - `--redact` hides names so the report can be shared; `--json` and `--out` save it.
+- **The installer can fetch Python itself.** If no suitable Python is installed, `install.cmd` offers to
+  download the official 32-bit Python 3.14.10 into the project folder (`.python32`).
+  - Source: the Python Software Foundation's `pythonx86` package on nuget.org.
+  - The SHA256 fingerprint is pinned and checked before unpacking.
+  - Nothing is installed system-wide. `-BootstrapPython` forces it.
+- **Tests through the Access Database Engine (ACE)**, the driver most BUSY integrations use. A CI job
+  installs Microsoft's ACE 2016 redistributable (x86; Microsoft signature checked). It then runs the report,
+  tool, index and verify tests on a password-protected company file in both the older `.mdb` format and the
+  newer `.accdb` format.
+- **Large company in a network folder, measured.** A CI job builds 50,000 vouchers (36 MB, BUSY's
+  password) and shares the folder over SMB. It reads the company through `\\localhost\...` with all
+  correctness checks, then runs `setup` and `doctor` on the network path.
+  - The one-time index build took about 3 s; reports took 0.01–1.6 s.
+  - The figures are in [docs/performance.md](docs/performance.md).
+  - `scripts/benchmark_access.py` runs the same measurement on your own PC and network.
+- `doctor` shows which Access drivers it found, which one it uses, and the company file's format.
+
+### Fixed
+- **Wrong driver for a newer BUSY file.** When Windows' old Jet driver meets an `.accdb` BUSY file, the
+  error now says to install ACE, whatever Jet's wording. CI showed Jet answers "Cannot open database ...
+  (-1028)" rather than "Unrecognized database format".
+- **Network folders.**
+  - Setup and doctor explain an unreachable network folder with Windows' own reason ("The network path was
+    not found", "Access is denied") instead of "no company folders".
+  - An unreadable company folder no longer crashes discovery.
+  - An empty `data_dir` gives a clear error.
+- If the configured Access driver is missing, busy-mcp now prefers ACE over Jet.
+
+### Changed
+- Version 1.2.0. CI lints `scripts/` too. The README's Python download wording is checked against the source
+  of python.org's download page (32-bit: "Windows installer (32-bit)"; or `py install 3.14-32`).
+
 ## [1.1.1] — 2026-11-02
 
 ### Fixed

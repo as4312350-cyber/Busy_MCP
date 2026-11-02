@@ -108,26 +108,23 @@ end to end, and shows its cost. It does not show the latency or bandwidth of a r
 can also cache the file there, because nobody else has it open. On a real network, with BUSY users working
 in the same company, expect slower times, above all for the index build.
 
-<!-- ORCHESTRATOR: fill this table from the scale-network job (step summary or the scale-network-results
-     artifact, busy-benchmark.json). Do not invent numbers; leave TBD until a run has produced them. -->
-
 | Step (seconds) | Local folder | `\\localhost\busydata\DATA` | `\\127.0.0.1\busydata\DATA` |
 |---|---:|---:|---:|
-| Open the company (`connect`) | TBD | TBD | TBD |
-| Change check (`change_check`) | TBD | TBD | TBD |
-| Load masters (`masters`) | TBD | TBD | TBD |
-| Build the index: accounts + items (`index`) | TBD | TBD | TBD |
-| Trial balance | TBD | TBD | TBD |
-| Profit & loss | TBD | TBD | TBD |
-| Balance sheet | TBD | TBD | TBD |
-| Stock summary | TBD | TBD | TBD |
-| Statement of the busiest party, full year | TBD | TBD | TBD |
-| Bill-wise receivables, all parties | TBD | TBD | TBD |
-| Dashboard | TBD | TBD | TBD |
-| Day book, one month | TBD | TBD | TBD |
-| Repeated trial balance (from memory) | TBD | TBD | TBD |
+| Open the company (`connect`) | 0.102 | 0.020 | 0.020 |
+| Change check (`change_check`) | 0.045 | 0.037 | 0.035 |
+| Load masters (`masters`) | 0.040 | 0.035 | 0.041 |
+| Build the index: accounts + items (`index`) | 3.996 | 2.906 | 2.949 |
+| Trial balance | 0.030 | 0.032 | 0.031 |
+| Profit & loss | 0.011 | 0.010 | 0.010 |
+| Balance sheet | 0.015 | 0.015 | 0.015 |
+| Stock summary | 0.018 | 0.017 | 0.017 |
+| Statement of the busiest party, full year | 0.007 | 0.008 | 0.007 |
+| Bill-wise receivables, all parties | 1.662 | 1.569 | 1.548 |
+| Dashboard | 0.250 | 0.255 | 0.244 |
+| Day book, one month | 0.070 | 0.072 | 0.070 |
+| Repeated trial balance (from memory) | 0.030 | 0.029 | 0.029 |
 
-Run: TBD (date, commit, runner image). Company file: TBD MB.
+Run: 2 November 2026, commit 5fb1b22 (CI run 41453464987), GitHub `windows-latest` (Windows Server 2025), 32-bit Python 3.14.10, Windows' built-in Jet driver. Company file: 36.1 MB, BUSY's password set. All six checks passed in all three folders. The local folder's *Open the company* and *index* include loading the Access driver for the first time in the process.
 
 The job fails if a check fails, if the index build takes more than 180 s, if any report takes more than
 10 s, or if the change check takes more than 10 s. These limits catch only gross slowdowns.

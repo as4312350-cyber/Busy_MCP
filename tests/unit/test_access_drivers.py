@@ -238,3 +238,15 @@ def test_access_backend_exits_cleanly_off_windows():
     run = _pytest("--backend", "access", "--access-driver", "ace", "--access-format", "accdb")
     assert run.returncode == 4
     assert "--backend access needs Windows with a Microsoft Access ODBC driver" in run.stderr
+
+
+# The exact text Windows Server 2025's Jet driver gave for an .accdb file in CI (run 41453464987).
+JET_1028 = ("('HY000', \"[HY000] [Microsoft][ODBC Microsoft Access Driver] Cannot open database '(unknown)'.  It may "
+            "not be a database that your application recognizes, or the file may be corrupt. (-1028) "
+            "(SQLDriverConnect)\")")
+
+
+def test_jet_cannot_open_accdb_wording_gets_the_ace_fix():
+    assert is_unrecognized_format(JET_1028)
+    hint = connect_hint(JET_1028, "access", f"DRIVER={{{JET}}};DBQ=x.bds;")
+    assert "Access Database Engine" in hint

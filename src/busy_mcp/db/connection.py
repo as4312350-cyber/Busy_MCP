@@ -19,7 +19,7 @@ from typing import Any, TypeVar
 from ..config import Settings
 from ..errors import BusyConnectionError, ReportError
 from .discovery import Target
-from .drivers import access_conn_str, is_ace_driver, pyodbc_module, python_bits, sqlserver_conn_str
+from .drivers import access_conn_str, access_file_format, is_ace_driver, pyodbc_module, python_bits, sqlserver_conn_str
 
 log = logging.getLogger(__name__)
 T = TypeVar("T")
@@ -30,8 +30,15 @@ _DRIVER_IN_CONN_STR = re.compile(r"\bDRIVER=\{?([^};]*)", re.IGNORECASE)
 
 
 def is_unrecognized_format(text: str) -> bool:
-    """The Access engine's "Unrecognized database format" error. Its number, -1206, doesn't change with the language."""
-    return "unrecognized database format" in text.lower() or "(-1206)" in text
+    """The Access engine refusing a file format it can't read.
+
+    Jet reports a newer .accdb file as "Unrecognized database format" (-1206) or, as seen on Windows Server 2025,
+    "Cannot open database ... may not be a database that your application recognizes" (-1028). The numbers don't
+    change with the language.
+    """
+    low = text.lower()
+    return ("unrecognized database format" in low or "(-1206)" in text
+            or "database that your application recognizes" in low or "(-1028)" in text)
 
 
 def unrecognized_format_hint(driver: str) -> str:
@@ -145,6 +152,12 @@ class BusyDB:
         except pyodbc.Error as exc:
             text = str(exc)
             hint = connect_hint(text, t.backend, conn_str)
+            if t.backend == "access" and not hint:
+                # Whatever the driver's wording: an .accdb file opened with Windows' Jet driver needs ACE.
+                driver = _DRIVER_IN_CONN_STR.search(conn_str)
+                name = driver.group(1) if driver else ""
+                if access_file_format(t.location)[0] == "accdb" and not is_ace_driver(name):
+                    hint = unrecognized_format_hint(name)
             raise BusyConnectionError(f"Cannot open {t.key}: {text}{f' ({hint})' if hint else ''}") from exc
         try:
             conn.timeout = self.settings.query_timeout
