@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "busy": {
+      "command": "C:\\Busy_MCP\\.venv\\Scripts\\busy-mcp.exe",
+      "env": {
+        "BUSY_DATA_DIR": "C:\\BusyWin\\DATA"
+      }
+    },
+    "busy-sql": {
+      "command": "C:\\Busy_MCP\\.venv\\Scripts\\busy-mcp.exe",
+      "env": {
+        "BUSY_SQL_SERVER": "localhost\\SQLEXPRESS",
+        "BUSY_SQL_USER": "busy_reader",
+        "BUSY_SQL_PASSWORD": "your-password",
+        "BUSY_COMPANY": "COMP0001"
+      }
+    }
+  }
+}
