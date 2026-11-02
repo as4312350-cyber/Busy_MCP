@@ -20,6 +20,7 @@ from ._common import (
     paginate,
     period,
     r2,
+    select_list,
     vt,
 )
 from .bills import _valid_date
@@ -54,7 +55,7 @@ def bank_reconciliation(db: BusyDB, bank: str, as_of: str | None = None, offset:
     if db.has_table("BRSOpBal") and {"MasterCode1", "OpAmt", "ClrDate"} <= set(
             db.existing_columns("BRSOpBal", ["MasterCode1", "OpAmt", "ClrDate"])):
         cols = db.existing_columns("BRSOpBal", ["EntryDate", "VchNo", "OpAmt", "ClrDate", "ShortNar"])
-        for r in db.query(f"SELECT {', '.join(cols)} FROM BRSOpBal WHERE MasterCode1 = ?", (m.code,)):
+        for r in db.query(f"SELECT {select_list(cols)} FROM BRSOpBal WHERE MasterCode1 = ?", (m.code,)):
             clr = _valid_date(r.get("clrdate"))
             if clr is not None and clr <= t:
                 continue

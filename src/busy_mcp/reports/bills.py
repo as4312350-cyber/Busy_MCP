@@ -29,6 +29,7 @@ from ._common import (
     paginate,
     period,
     r2,
+    select_list,
     to_date,
 )
 from .receivables import BUCKETS, _bucket
@@ -74,7 +75,7 @@ def _tran3_rows(db: BusyDB, codes: list[int], wanted: list[str], extra_where: st
     cols = db.existing_columns("Tran3", wanted)
     rows: list[dict[str, Any]] = []
     for part in chunks(codes):
-        rows += db.query(f"SELECT {', '.join(cols)} FROM Tran3 WHERE MasterCode1 IN ({int_list(part)}){extra_where}")
+        rows += db.query(f"SELECT {select_list(cols)} FROM Tran3 WHERE MasterCode1 IN ({int_list(part)}){extra_where}")
     dead = cancelled_vouchers(db)
     return [r for r in rows if int(r.get("vchcode") or 0) not in dead]
 
@@ -193,7 +194,7 @@ def pending_orders(db: BusyDB, kind: str = "sales", party: str | None = None, it
     order_type = VT_SALES_ORDER if kind == "sales" else VT_PURCHASE_ORDER
     cols = db.existing_columns("Tran3", ["RefCode", "Method", "VchCode", "VchType", "MasterCode1", "MasterCode2",
                                          "No", "Date", "DueDate", "Value1", "Value3", "ItemSrNo"])
-    rows = db.query(f"SELECT {', '.join(cols)} FROM Tran3 WHERE RecType = {RT3_ORDER_LINE}")
+    rows = db.query(f"SELECT {select_list(cols)} FROM Tran3 WHERE RecType = {RT3_ORDER_LINE}")
     dead = cancelled_vouchers(db)
     rows = [r for r in rows if int(r.get("vchcode") or 0) not in dead]
     party_code = find_master(db, party, (MT_LEDGER,)).code if party else None

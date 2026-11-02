@@ -27,6 +27,7 @@ from ._common import (
     paginate,
     period,
     r2,
+    select_list,
     vt,
 )
 
@@ -132,10 +133,10 @@ def tds_register(db: BusyDB, from_date: str | None, to_date: str | None, party: 
               "TDSAmt", "SurchargeAmt", "CessAmt", "SHECessAmt", "ChallanNo", "ChequeNo", "ChequeDate", "Quarter",
               "Method", "RefNo"]
     cols = db.existing_columns("TDS", wanted)
-    sql, params = f"SELECT {', '.join(cols)} FROM TDS WHERE 1 = 1", []
+    sql, params = f"SELECT {select_list(cols)} FROM TDS WHERE 1 = 1", []
     date_col = next((c for c in ("EntryDate", "DateOfCredit") if c in cols), None)
     if date_col:
-        sql += f" AND {date_col} >= ? AND {date_col} < ?"
+        sql += f" AND [{date_col}] >= ? AND [{date_col}] < ?"
         params += [db.dparam(f), db.dparam(next_day(t))]
     if party:
         sql += " AND MasterCode1 = ?"

@@ -6,6 +6,19 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ## [1.1.1] — 2026-11-02
 
 ### Fixed
+- **BUSY's standard (Access) edition could not be opened at all.** busy-mcp sent the `.bds` password as
+  `PWD={ILoveMyINDIA}`. Unlike the SQL Server drivers, the Microsoft Access driver keeps the braces as part
+  of the password, so every BUSY company file was rejected with "Not a valid password". Braces are now used
+  only when a password can't be written without them. Found by the new CI job that reads a real
+  password-protected Access file (see Added); the unit test had asserted the braced form.
+- **Bill numbers and batches were missing on the Access edition.** In Access SQL a bare `No` means False,
+  so `SELECT … No …` from `Tran3` returned False instead of the bill or batch number:
+  - `bills-outstanding` showed no bill numbers
+  - `batch-stock` found no batches
+  - pending orders use the same query
+
+  Column lists built at run time are now bracketed (`[No]`, `[Date]`) everywhere: bills, orders, batches,
+  serial numbers, TDS, BRS openings and company details.
 - CI "Lint, types, security" failed with mypy 2.4 / pydantic 2.14: tool annotations were built with
   camelCase keyword arguments and the MCP SDK 1.x fallback import confused the type checker. All SDK
   1.x / 2.x differences now live in `server/_compat.py` (dynamic fallbacks, annotations built from the
@@ -35,6 +48,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
   - finally lets the installer choose among all the Pythons on the machine
 
   `tests/windows/test_install.ps1` checks the selection rules.
+- CI job **real Microsoft Access database**. Until now every test ran on SQLite, so the SQL had never
+  run on Jet/ACE, the engine behind BUSY's standard edition. `pytest --backend access` copies the test
+  company into a password-protected Access file in BUSY's layout (`COMP0001\db12024.bds`, BUSY's default
+  password, Date/Time columns). It then runs the report tests, every MCP tool and the fast-index checks
+  through Microsoft's own Access ODBC driver (32-bit Python, Windows' built-in Jet driver).
 - [docs/production-checklist.md](docs/production-checklist.md): a 15-minute acceptance test against your own
   BUSY data, plus operating, update, rollback and uninstall guidance.
 

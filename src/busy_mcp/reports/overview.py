@@ -10,7 +10,7 @@ from .. import __version__
 from ..db import BusyDB, Master
 from ..errors import ReportError
 from ..schema import MASTER_TYPE_INFO, MT_GROUP, MT_ITEM, MT_ITEM_GROUP, MT_LEDGER, master_type_label
-from ._common import ancestors, find_master, group_path, paginate, parent_name, vt
+from ._common import ancestors, find_master, group_path, paginate, parent_name, select_list, vt
 
 KIND_TO_TYPE = {"group": MT_GROUP, "ledger": MT_LEDGER, "item_group": MT_ITEM_GROUP, "item": MT_ITEM}
 
@@ -22,7 +22,7 @@ def company_info(db: BusyDB) -> dict[str, Any]:
         cols = db.existing_columns("Company", ["Name", "Address1", "Address2", "Address3", "Address4", "GSTNo",
                                                "PANNo", "Email", "Mobile", "TelNo"])
         if cols:
-            rows = db.query(f"SELECT {db.top(1)}{', '.join(cols)} FROM Company{db.limit(1)}")
+            rows = db.query(f"SELECT {db.top(1)}{select_list(cols)} FROM Company{db.limit(1)}")
             if rows:
                 info.update({k: v for k, v in rows[0].items() if v not in (None, "")})
     if "name" not in info and db.has_column("Locks", "CompanyName"):

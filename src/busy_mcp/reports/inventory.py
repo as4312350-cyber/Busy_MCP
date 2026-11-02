@@ -21,6 +21,7 @@ from ._common import (
     parent_name,
     period,
     r2,
+    select_list,
     to_date,
     vt,
 )
@@ -293,7 +294,7 @@ def batch_stock(db: BusyDB, item: str | None = None, expiring_within_days: int |
         cols = db.existing_columns("Tran3", ["MasterCode1", "No", "DueDate", "MfgDate", "Balance1", "Balance2",
                                              "Balance3", "Value1"])
         if {"MasterCode1", "No"} <= set(cols):
-            rows = db.query(f"SELECT {', '.join(cols)} FROM Tran3 WHERE RecType = {RT3_BATCH}")
+            rows = db.query(f"SELECT {select_list(cols)} FROM Tran3 WHERE RecType = {RT3_BATCH}")
             from_tran3_qty = not stock
             for r in rows:
                 key = (int(r.get("mastercode1") or 0), str(r.get("no") or "").strip())
@@ -341,7 +342,7 @@ def serial_numbers(db: BusyDB, item: str | None = None, serial: str | None = Non
                                                 "VchNo", "MCCode", "WarrantyMonth"])
     if not {"ItemCode", "SerialNo", "Value1"} <= set(cols):
         raise ReportError("ItemSerialNo table has an unexpected layout in this BUSY version; use read-table.")
-    sql = f"SELECT {', '.join(cols)} FROM ItemSerialNo WHERE 1 = 1"
+    sql = f"SELECT {select_list(cols)} FROM ItemSerialNo WHERE 1 = 1"
     params: list[Any] = []
     if item:
         sql += " AND ItemCode = ?"

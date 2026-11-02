@@ -75,6 +75,12 @@ def chunks(seq: Sequence[Any], size: int = 400) -> Iterable[Sequence[Any]]:
         yield seq[i:i + size]
 
 
+def select_list(columns: Iterable[str]) -> str:
+    """A bracketed column list. BUSY uses column names such as No and Date that are reserved words in
+    Access SQL (a bare ``No`` is the constant False there); brackets work in Access, SQL Server and SQLite."""
+    return ", ".join(f"[{c}]" for c in columns)
+
+
 def int_list(values: Iterable[Any]) -> str:
     """Comma list of ints for an IN clause (values are always our own ints)."""
     return ",".join(str(int(v)) for v in values)
