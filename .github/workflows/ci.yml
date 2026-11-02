@@ -225,7 +225,7 @@ jobs:
       # Microsoft's own Access ODBC driver, exactly like a user's BUSY data.
       - name: Reports, every MCP tool and the fast index against the Access database
         run: |
-          python -m pytest --backend access -s -W error::ResourceWarning tests/unit/test_reports.py tests/unit/test_features.py tests/unit/test_app.py tests/unit/test_index_and_freshness.py
+          python -m pytest --backend access -s -W error::ResourceWarning tests/unit/test_reports.py tests/unit/test_features.py tests/unit/test_app.py tests/unit/test_index_and_freshness.py tests/unit/test_verify.py
 
   access-ace:
     name: Reports through the Access Database Engine (ACE, ${{ matrix.format }} file, Windows, 32-bit)
@@ -311,7 +311,7 @@ jobs:
       # ODBC driver, in the matrix's format; busy-mcp then reads it through that same driver, as on most BUSY PCs.
       - name: Reports, every MCP tool and the fast index through ACE (${{ matrix.format }} file)
         run: |
-          python -m pytest --backend access --access-driver ace --access-format ${{ matrix.format }} -s -W error::ResourceWarning tests/unit/test_reports.py tests/unit/test_features.py tests/unit/test_app.py tests/unit/test_index_and_freshness.py
+          python -m pytest --backend access --access-driver ace --access-format ${{ matrix.format }} -s -W error::ResourceWarning tests/unit/test_reports.py tests/unit/test_features.py tests/unit/test_app.py tests/unit/test_index_and_freshness.py tests/unit/test_verify.py
       # The installed busy-mcp's doctor on the same kind of file, through ACE and through Windows' Jet driver. Jet must
       # read the .mdb file, and fail on the .accdb file with "Unrecognized database format" and the ACE fix.
       - name: busy-mcp doctor through ACE and through Jet (${{ matrix.format }} file)
