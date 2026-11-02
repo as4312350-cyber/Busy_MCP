@@ -7,9 +7,10 @@ import time
 from typing import Any
 
 from .. import __version__
-from ..config import config_path, load_settings
+from ..config import Settings, config_path, load_settings
 from ..db import BusyDB, choose_target, discover_targets, find_data_dirs, resolve_backend
-from ..db.drivers import python_bits
+from ..db.connection import is_unrecognized_format, unrecognized_format_hint
+from ..db.drivers import access_drivers, access_file_format, is_ace_driver, pick_access_driver, python_bits
 from ..errors import BusyMCPError
 
 
@@ -22,6 +23,28 @@ class Report:
         if status == "FAIL":
             self.failed = True
         self.out(f"[{status:^4}] {text}")
+
+
+def _access_drivers(r: Report, settings: Settings, drivers: list[str]) -> str:
+    """Report the Access drivers this Python sees and the one busy-mcp will use; return that one ("" if none)."""
+    bits = python_bits()
+    arch = "x64" if bits == 64 else "x86"
+    found = access_drivers(drivers)
+    if not found:
+        r.line("FAIL", f"No Microsoft Access ODBC driver for this {bits}-bit Python. Install the "
+                       f"'Microsoft Access Database Engine 2016 Redistributable' ({arch}) or use Python of the "
+                       "other bitness (BUSY usually installs the 32-bit engine).")
+        return ""
+    chosen = pick_access_driver(settings)
+    note = (f" (the access_driver setting '{settings.access_driver}' is not installed)"
+            if chosen != settings.access_driver and "access_driver" in settings.origin else "")
+    r.line("INFO", f"Access drivers for this {bits}-bit Python: {', '.join(found)}; busy-mcp will use '{chosen}'{note}")
+    if not any(is_ace_driver(d) for d in found):
+        r.line("INFO", "Only Windows' built-in Jet driver is installed. It reads BUSY files in the older Access "
+                       "format (.mdb); newer BUSY files may need the Microsoft Access Database Engine (ACE). If a "
+                       "company fails with 'Unrecognized database format', install the Microsoft Access Database "
+                       f"Engine 2016 Redistributable ({arch}).")
+    return chosen
 
 
 def run_doctor(out: Any = print) -> int:
@@ -49,17 +72,15 @@ def run_doctor(out: Any = print) -> int:
     backend = resolve_backend(settings)
     r.line("INFO", f"Edition/backend: {backend}")
 
+    access_driver = ""
     if backend != "sqlite":
         try:
             import pyodbc
 
             drivers = pyodbc.drivers()
             r.line("OK", f"pyodbc {pyodbc.version}; ODBC drivers: {', '.join(drivers) or 'none'}")
-            if backend == "access" and not any("access driver" in d.lower() for d in drivers):
-                r.line("FAIL", f"No Microsoft Access ODBC driver for this {python_bits()}-bit Python. Install the "
-                               "'Microsoft Access Database Engine 2016 Redistributable' "
-                               f"({'x64' if python_bits() == 64 else 'x86'}) or use Python of the other bitness "
-                               "(BUSY usually installs the 32-bit engine).")
+            if backend == "access":
+                access_driver = _access_drivers(r, settings, drivers)
             if backend == "sqlserver" and not any("sql server" in d.lower() for d in drivers):
                 r.line("FAIL", "No SQL Server ODBC driver. Install 'ODBC Driver 18 for SQL Server'.")
         except ImportError as exc:
@@ -83,6 +104,8 @@ def run_doctor(out: Any = print) -> int:
 
     try:
         target = choose_target(targets, settings.company, settings.fy)
+        if backend == "access":
+            r.line("INFO", f"File format of {target.key}: {access_file_format(target.location)[1]}")
         db = BusyDB(target, settings)
         from .. import reports
 
@@ -108,6 +131,8 @@ def run_doctor(out: Any = print) -> int:
         db.close()
     except BusyMCPError as exc:
         r.line("FAIL", f"Cannot read {targets[0].key}: {exc}")
+        if is_unrecognized_format(str(exc)):
+            r.line("INFO", f"Fix: {unrecognized_format_hint(access_driver)}")
     except Exception as exc:  # noqa: BLE001 - doctor must report, not crash
         r.line("FAIL", f"Unexpected error: {type(exc).__name__}: {exc}")
 

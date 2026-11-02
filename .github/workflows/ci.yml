@@ -144,3 +144,131 @@ jobs:
       - name: Reports, every MCP tool and the fast index against the Access database
         run: |
           python -m pytest --backend access -s -W error::ResourceWarning tests/unit/test_reports.py tests/unit/test_features.py tests/unit/test_app.py tests/unit/test_index_and_freshness.py
+
+  access-ace:
+    name: Reports through the Access Database Engine (ACE, ${{ matrix.format }} file, Windows, 32-bit)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        format: [mdb, accdb]
+    env:
+      # Microsoft Access Database Engine 2016 Redistributable, x86, from Microsoft's download center only.
+      ACE_URL: https://download.microsoft.com/download/3/5/C/35C84C36-661A-44E6-9324-8786B8DBE231/accessdatabaseengine.exe
+      # SHA256 of that file as pinned by DomGries/InnoDependencyInstaller. Shown for comparison only; the gate is
+      # Microsoft's Authenticode signature.
+      ACE_KNOWN_SHA256: adc0504656f390d225530ac09f1fc2113295c4f9baeffea1e983fecf4ac960f0
+      ACE_DRIVER: Microsoft Access Driver (*.mdb, *.accdb)
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          architecture: x86
+      - name: Install the Access Database Engine 2016 Redistributable (x86) from Microsoft
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ProgressPreference = "SilentlyContinue"
+          $exe = Join-Path $env:RUNNER_TEMP "accessdatabaseengine.exe"
+          try {
+            Invoke-WebRequest -Uri $env:ACE_URL -OutFile $exe -MaximumRetryCount 3 -RetryIntervalSec 10
+          } catch {
+            Write-Host "::error::Could not download the Access Database Engine 2016 Redistributable (x86) from Microsoft ($env:ACE_URL): $($_.Exception.Message). Microsoft may have moved or retired it; set ACE_URL to Microsoft's current official link. Do not use an unofficial copy."
+            exit 1
+          }
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash.ToLowerInvariant()
+          $sig = Get-AuthenticodeSignature -LiteralPath $exe
+          $signer = if ($sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { "(none)" }
+          Write-Host "Downloaded $((Get-Item -LiteralPath $exe).Length) bytes from $env:ACE_URL"
+          Write-Host "SHA256: $hash (known x86 build: $env:ACE_KNOWN_SHA256; same: $($hash -eq $env:ACE_KNOWN_SHA256))"
+          Write-Host "Authenticode signature: $($sig.Status); signer: $signer"
+          if ($sig.Status -ne "Valid") {
+            Write-Host "::error::The installer's Authenticode signature is $($sig.Status), not Valid: $($sig.StatusMessage)"
+            exit 1
+          }
+          if ($signer -notmatch "O=Microsoft Corporation") {
+            Write-Host "::error::The installer is not signed by Microsoft (signer: $signer)"
+            exit 1
+          }
+          if ($hash -ne $env:ACE_KNOWN_SHA256) {
+            Write-Host "::warning::The Microsoft-signed installer differs from the known x86 build; continuing"
+          }
+          $p = Start-Process -FilePath $exe -ArgumentList "/quiet" -Wait -PassThru
+          $code = $p.ExitCode
+          Write-Host "Installer exit code: $code (0 = installed; 3010 = installed, restart requested)"
+          if ($null -ne $code -and $code -notin @(0, 3010)) {
+            Write-Host "::error::The Access Database Engine installer failed with exit code $code"
+            exit 1
+          }
+          # 32-bit ODBC drivers are registered under WOW6432Node. Allow the installer's own child processes to finish.
+          $key = "HKLM:\SOFTWARE\WOW6432Node\ODBC\ODBCINST.INI\$env:ACE_DRIVER"
+          $deadline = (Get-Date).AddMinutes(2)
+          while (-not (Test-Path -LiteralPath $key) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 5 }
+          if (-not (Test-Path -LiteralPath $key)) {
+            Write-Host "::error::The 32-bit ODBC driver '$env:ACE_DRIVER' is not registered after the installation"
+            exit 1
+          }
+          Write-Host "32-bit ODBC driver '$env:ACE_DRIVER': $((Get-ItemProperty -LiteralPath $key).Driver)"
+      - name: Install from ready-made packages only, as the installer does
+        run: |
+          python -m pip install "--only-binary=:all:" . pytest
+      - name: 32-bit Python sees the Access Database Engine's ODBC driver
+        shell: python
+        run: |
+          import os, struct, sys
+          import pyodbc
+          drivers = pyodbc.drivers()
+          print(f"{struct.calcsize('P') * 8}-bit Python {sys.version.split()[0]}, pyodbc {pyodbc.version}; ODBC drivers: {drivers}")
+          if struct.calcsize("P") != 4:
+              sys.exit("FAIL: this job must use 32-bit Python")
+          if os.environ["ACE_DRIVER"] not in drivers:
+              sys.exit(f"FAIL: 32-bit Python does not see {os.environ['ACE_DRIVER']!r}")
+      # The test company is built as a password-protected Access file in BUSY's layout by the Access Database Engine's
+      # ODBC driver, in the matrix's format; busy-mcp then reads it through that same driver, as on most BUSY PCs.
+      - name: Reports, every MCP tool and the fast index through ACE (${{ matrix.format }} file)
+        run: |
+          python -m pytest --backend access --access-driver ace --access-format ${{ matrix.format }} -s -W error::ResourceWarning tests/unit/test_reports.py tests/unit/test_features.py tests/unit/test_app.py tests/unit/test_index_and_freshness.py
+      # The installed busy-mcp's doctor on the same kind of file, through ACE and through Windows' Jet driver. Jet must
+      # read the .mdb file, and fail on the .accdb file with "Unrecognized database format" and the ACE fix.
+      - name: busy-mcp doctor through ACE and through Jet (${{ matrix.format }} file)
+        shell: python
+        env:
+          ACCESS_FORMAT: ${{ matrix.format }}
+        run: |
+          import os, subprocess, sys, tempfile
+          sys.path.insert(0, "tests")
+          import pyodbc
+          pyodbc.pooling = False  # before the first ODBC call, so the built file can be renamed
+          from fixtures.busy_fixture import build
+          from fixtures.jet_fixture import access_driver, build_access_company
+          fmt = os.environ["ACCESS_FORMAT"]
+          ace, jet = access_driver("ace", fmt), access_driver("jet", "mdb")
+          root = tempfile.mkdtemp()
+          sqlite = build(os.path.join(root, "db12024.sqlite"))
+          data_dir, password = build_access_company(sqlite, root, ace, fmt, require_password=True)
+
+          def doctor(driver):
+              env = {**os.environ, "BUSY_BACKEND": "access", "BUSY_DATA_DIR": data_dir, "BUSY_FY": "2024",
+                     "BUSY_ACCESS_PASSWORD": password, "BUSY_ACCESS_DRIVER": driver,
+                     "BUSY_MCP_CONFIG": os.path.join(root, "config.json")}
+              run = subprocess.run([sys.executable, "-m", "busy_mcp", "doctor"], env=env, capture_output=True,
+                                   text=True)
+              print(f"--- busy-mcp doctor with BUSY_ACCESS_DRIVER={driver}: exit code {run.returncode}")
+              print(run.stdout + run.stderr)
+              return run.returncode, run.stdout
+
+          problems = []
+          code, out = doctor(ace)
+          if code != 0 or f"busy-mcp will use '{ace}'" not in out or f"File format of COMP0001/2024: .{fmt} (" not in out:
+              problems.append("doctor through ACE must pass, use ACE and show the file format")
+          code, out = doctor(jet)
+          if fmt == "mdb" and (code != 0 or f"busy-mcp will use '{jet}'" not in out):
+              problems.append("doctor through Jet must read the .mdb file")
+          if fmt == "accdb" and (code != 1 or "Unrecognized database format" not in out
+                                 or "[INFO] Fix: this BUSY file needs the Microsoft Access Database Engine (ACE)" not in out):
+              problems.append("doctor through Jet must fail on the .accdb file with the ACE fix")
+          if problems:
+              sys.exit("FAIL: " + "; ".join(problems))
+          print("doctor checks passed")

@@ -19,13 +19,44 @@ from typing import Any, TypeVar
 from ..config import Settings
 from ..errors import BusyConnectionError, ReportError
 from .discovery import Target
-from .drivers import access_conn_str, pyodbc_module, sqlserver_conn_str
+from .drivers import access_conn_str, is_ace_driver, pyodbc_module, python_bits, sqlserver_conn_str
 
 log = logging.getLogger(__name__)
 T = TypeVar("T")
 
 _SAFE_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _SCHEMA_KEYS = frozenset({"tables"})
+_DRIVER_IN_CONN_STR = re.compile(r"\bDRIVER=\{?([^};]*)", re.IGNORECASE)
+
+
+def is_unrecognized_format(text: str) -> bool:
+    """The Access engine's "Unrecognized database format" error. Its number, -1206, doesn't change with the language."""
+    return "unrecognized database format" in text.lower() or "(-1206)" in text
+
+
+def unrecognized_format_hint(driver: str) -> str:
+    """The fix for "Unrecognized database format" with `driver` ("" if unknown); ``busy-mcp doctor`` prints it too."""
+    bits = python_bits()
+    arch = "x64" if bits == 64 else "x86"
+    if is_ace_driver(driver):
+        return (f"the Access Database Engine ('{driver}') could not read this file. It may be damaged, or newer than "
+                f"this engine: install the current Microsoft Access Database Engine 2016 Redistributable ({arch}), "
+                "check that BUSY itself opens this company, then run 'busy-mcp doctor'")
+    return ("this BUSY file needs the Microsoft Access Database Engine (ACE). Install the Microsoft Access Database "
+            f"Engine 2016 Redistributable with the same bitness as this Python ({arch} for this {bits}-bit Python), "
+            "then run 'busy-mcp doctor'")
+
+
+def connect_hint(text: str, backend: str, conn_str: str) -> str:
+    """A plain-words fix for a pyodbc connect error `text`, or "" when none applies."""
+    if is_unrecognized_format(text):
+        m = _DRIVER_IN_CONN_STR.search(conn_str)
+        return unrecognized_format_hint(m.group(1) if m else "")
+    if backend == "access" and "password" in text.lower():
+        return "wrong .bds password: set BUSY_ACCESS_PASSWORD"
+    if "IM002" in text or "IM014" in text:
+        return "ODBC driver missing or 32/64-bit mismatch with this Python"
+    return ""
 
 
 def clean_value(value: Any) -> Any:
@@ -113,12 +144,8 @@ class BusyDB:
             conn = pyodbc.connect(conn_str, autocommit=True, readonly=True, timeout=30)
         except pyodbc.Error as exc:
             text = str(exc)
-            hint = ""
-            if t.backend == "access" and "password" in text.lower():
-                hint = " (wrong .bds password: set BUSY_ACCESS_PASSWORD)"
-            elif "IM002" in text or "IM014" in text:
-                hint = " (ODBC driver missing or 32/64-bit mismatch with this Python)"
-            raise BusyConnectionError(f"Cannot open {t.key}: {text}{hint}") from exc
+            hint = connect_hint(text, t.backend, conn_str)
+            raise BusyConnectionError(f"Cannot open {t.key}: {text}{f' ({hint})' if hint else ''}") from exc
         try:
             conn.timeout = self.settings.query_timeout
         except Exception:  # noqa: BLE001 - Access driver does not support query timeouts
