@@ -33,6 +33,7 @@ tests/
   fixtures/      a small company in BUSY's exact layout, with the story and expected numbers
   unit/          reports, features, index & freshness, explorer, SQL guard, config, CLI, in-process tools
   integration/   real stdio server subprocess, HTTP security
+  windows/       installer checks (PowerShell; run in CI on Windows)
 docs/          user and developer documentation
 scripts/       installer, read-only SQL login, benchmark
 examples/      client configuration files

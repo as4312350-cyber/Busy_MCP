@@ -14,8 +14,12 @@ If you used `install.cmd`, run it as `C:\Busy_MCP\.venv\Scripts\python.exe -m bu
 
 | Symptom | Cause / fix |
 |---|---|
-| `No Microsoft Access ODBC driver for this 64-bit Python` | BUSY installs the 32-bit Access engine. Install 32-bit Python and run `install.cmd` again, **or** install the x64 *Access Database Engine 2016 Redistributable* (if 32-bit Office is present, run its installer from a command prompt with `/quiet`) |
+| `No Microsoft Access ODBC driver for this 64-bit Python` | BUSY installs the 32-bit Access engine. Install Python 3.14 **32-bit** and double-click `install.cmd` again: it picks the Python that matches the driver and rebuilds its environment by itself. **Or** install the x64 *Access Database Engine 2016 Redistributable* (if 32-bit Office is present, run its installer from a command prompt with `/quiet`) |
 | `IM002` / `IM014` errors | Driver missing, or a 32/64-bit mismatch. Same fix as above |
+| Installer: `Installing packages failed` with Python 3.15 | Python 3.15 is too new for now: pyodbc, the database driver, has no ready-made Windows package for it yet. Install Python 3.14 (32-bit) and run `install.cmd` again. Python 3.15 can stay installed; the installer prefers 3.14 |
+| Installer: `Installing packages failed` with Python 3.10–3.14 | Usually no internet access, or a proxy. The installer only downloads ready-made packages, so no compiler is needed |
+| Installer: `The old environment is in use` | Quit Claude Desktop (also from the system tray) and any other AI app using BUSY, then run `install.cmd` again |
+| Installer picked the wrong Python | The first lines show the Access driver it found and the Python it chose. To force one: `powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Python "C:\path\to\python.exe"` |
 | `Not a valid password` | Set `BUSY_ACCESS_PASSWORD` |
 | No companies found (Access) | Point `BUSY_DATA_DIR` at the folder that *contains* `COMP0001` (BUSY > Company > Set Data Directory). `busy-mcp setup` searches all drives |
 | No companies found (SQL) | The login must see the `BusyCOMPnnnn_db1YYYY` databases. Run `scripts/create_readonly_sql_login.sql` again after BUSY creates a new year |

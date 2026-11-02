@@ -10,14 +10,31 @@ and versions follow [Semantic Versioning](https://semver.org/).
   camelCase keyword arguments and the MCP SDK 1.x fallback import confused the type checker. All SDK
   1.x / 2.x differences now live in `server/_compat.py` (dynamic fallbacks, annotations built from the
   protocol's wire names), so the code type-checks cleanly against either SDK. No behaviour change.
+- **The installer could pick a Python that cannot work.** It took the newest Python (`py -3`):
+  - Python 3.15 failed to install, because pyodbc has no Windows package for it yet and a normal PC can't
+    compile one.
+  - A 64-bit Python was chosen even where BUSY's Access driver is 32-bit.
 
+  It now prefers versions with ready-made packages for every dependency (3.10–3.14), then the bitness of
+  the Access driver installed on the PC, then the newest. It prints what it found and chose; `-Python`
+  forces a specific one.
+- **Running the installer again kept the old environment**, so the documented fix for a 32/64-bit mismatch
+  ("install 32-bit Python and run `install.cmd` again") had no effect. `.venv` is now rebuilt when a
+  different Python is chosen, with a clear message if Claude Desktop still has it open.
+- The installer installs ready-made packages only, so it never tries to compile something on a PC without
+  a compiler, and CI can't pass by compiling something users can't.
 - `install.cmd` now returns the installer's exit code and only pauses for people (not in CI).
 - `busy-mcp setup` saves folder paths as absolute paths, because AI apps start the server from another folder.
 
 ### Added
-- CI job **Windows installer**: on a real Windows machine it runs `install.cmd` exactly like a double-click,
-  then the guided setup against the test company. It checks that the Claude Desktop config was merged and
-  backed up, then runs `doctor` from another folder.
+- CI job **Windows installer**, on a real Windows machine:
+  - runs `install.cmd` like a double-click with 64-bit Python, then again with **32-bit Python** (the
+    recommended setup), and checks that the environment was rebuilt and pyodbc loads
+  - runs the guided setup against the test company, checks that the Claude Desktop config was merged and
+    backed up, and runs `doctor` from another folder
+  - finally lets the installer choose among all the Pythons on the machine
+
+  `tests/windows/test_install.ps1` checks the selection rules.
 - [docs/production-checklist.md](docs/production-checklist.md): a 15-minute acceptance test against your own
   BUSY data, plus operating, update, rollback and uninstall guidance.
 
@@ -26,6 +43,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   removes the Node.js 20 deprecation warning). None of their breaking changes apply to this workflow.
 - Linters and checkers are pinned (`ruff`, `mypy`, `bandit`, `pip-audit`) so local runs and CI always
   agree; Dependabot proposes upgrades through pull requests that CI checks first.
+- Tests run on Python 3.10 and 3.14 (oldest and newest supported; was 3.10 and 3.13). The README now
+  recommends Python 3.14, 32-bit.
 
 ## [1.1.0] — 2026-11-02
 

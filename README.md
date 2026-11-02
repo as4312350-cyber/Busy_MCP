@@ -1,7 +1,7 @@
 # BUSY MCP Server
 
 [![CI](https://github.com/as4312350-cyber/Busy_MCP/actions/workflows/ci.yml/badge.svg)](https://github.com/as4312350-cyber/Busy_MCP/actions/workflows/ci.yml)
-![Python](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue)
+![Python](https://img.shields.io/badge/python-3.10%E2%80%933.14-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Read-only](https://img.shields.io/badge/access-read--only-brightgreen)
 
@@ -22,10 +22,12 @@ BUSY's own company files directly; it cannot change anything in BUSY.
 
 ## Install (Windows, about 5 minutes)
 
-1. Install **Python 3.10 or newer** from [python.org](https://www.python.org/downloads/windows/). Tick
-   **Add python.exe to PATH**.
-   - BUSY usually uses 32-bit Access drivers, so the **32-bit** ("Windows installer (32-bit)") Python is the
-     easiest choice.
+1. Install **Python 3.14, 32-bit** ("Windows installer (32-bit)") from
+   [python.org](https://www.python.org/downloads/windows/). Tick **Add python.exe to PATH**.
+   - Why 32-bit: BUSY's data is read through Microsoft's Access driver, which is 32-bit on most PCs.
+   - Python 3.10 to 3.14 all work. If you have several, the installer picks the one that matches the driver.
+   - **Not Python 3.15 yet:** pyodbc, the database driver, has no ready-made Windows package for it
+     (November 2026).
 2. Download this project (green **Code** button on GitHub → **Download ZIP**), unzip it (e.g. to
    `C:\Busy_MCP`), and **double-click `install.cmd`**.
 

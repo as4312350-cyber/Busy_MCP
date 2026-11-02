@@ -39,7 +39,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python: ["3.10", "3.13"]
+        python: ["3.10", "3.14"]   # oldest and newest supported; keep NewestTested in scripts/install.ps1 in step
         mcp: ["<2", ">=2"]
     steps:
       - uses: actions/checkout@v7
@@ -73,20 +73,42 @@ jobs:
           path: dist/
 
   installer:
-    name: Windows installer (install.cmd, setup, doctor)
+    name: Windows installer (install.cmd with 32-bit Python, setup, doctor)
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
+        id: py64
         with:
           python-version: "3.12"
-      - name: Run install.cmd as a user would (BUSY-specific setup runs in the next step)
+          architecture: x64
+      - uses: actions/setup-python@v7
+        id: py32
+        with:
+          python-version: "3.14"
+          architecture: x86
+      - name: How the installer chooses Python
         shell: cmd
-        run: install.cmd -SkipSetup
-      - name: Guided setup against the test company, then doctor
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tests\windows\test_install.ps1
+      - name: Install with 64-bit Python, as many users do first
+        shell: cmd
+        env:
+          PY64: ${{ steps.py64.outputs.python-path }}
+        run: install.cmd -SkipSetup -Python "%PY64%"
+      - name: Run install.cmd again with 32-bit Python (the documented fix); it must rebuild .venv
+        shell: cmd
+        env:
+          PY32: ${{ steps.py32.outputs.python-path }}
+        run: install.cmd -SkipSetup -Python "%PY32%"
+      - name: Guided setup against the test company, then doctor (32-bit)
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
+          $bits = .venv\Scripts\python.exe -c "import struct; print(struct.calcsize('P') * 8)"
+          if ("$bits".Trim() -ne "32") { throw "install.cmd did not rebuild .venv with 32-bit Python (got $bits-bit)" }
+          .venv\Scripts\python.exe -c "import pyodbc; print('pyodbc', pyodbc.version, 'sees', pyodbc.drivers())"
+          if ($LASTEXITCODE -ne 0) { throw "pyodbc does not load in 32-bit Python" }
           .venv\Scripts\python.exe -c "import sys; sys.path.insert(0, 'tests'); from fixtures.busy_fixture import build; build('db12024.sqlite')"
           $claude = Join-Path $env:RUNNER_TEMP "Claude\claude_desktop_config.json"
           New-Item -ItemType Directory -Force (Split-Path $claude) | Out-Null
@@ -100,3 +122,6 @@ jobs:
           & "$env:GITHUB_WORKSPACE\.venv\Scripts\python.exe" -m busy_mcp doctor
           if ($LASTEXITCODE -ne 0) { throw "doctor failed" }
           Pop-Location
+      - name: Automatic choice among all Pythons on the machine, ready-made packages only
+        shell: cmd
+        run: install.cmd -SkipSetup
