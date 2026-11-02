@@ -11,6 +11,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
   1.x / 2.x differences now live in `server/_compat.py` (dynamic fallbacks, annotations built from the
   protocol's wire names), so the code type-checks cleanly against either SDK. No behaviour change.
 
+- `install.cmd` now returns the installer's exit code and only pauses for people (not in CI).
+- `busy-mcp setup` saves folder paths as absolute paths, because AI apps start the server from another folder.
+
+### Added
+- CI job **Windows installer**: on a real Windows machine it runs `install.cmd` exactly like a double-click,
+  then the guided setup against the test company. It checks that the Claude Desktop config was merged and
+  backed up, then runs `doctor` from another folder.
+- [docs/production-checklist.md](docs/production-checklist.md): a 15-minute acceptance test against your own
+  BUSY data, plus operating, update, rollback and uninstall guidance.
+
 ### Changed
 - CI uses `actions/checkout@v7`, `actions/setup-python@v7` and `actions/upload-artifact@v7` (Node.js 24;
   removes the Node.js 20 deprecation warning). None of their breaking changes apply to this workflow.

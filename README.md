@@ -38,6 +38,9 @@ The installer sets everything up and then runs `busy-mcp setup`, which:
 Restart Claude Desktop and ask: *"Show my BUSY dashboard for this year."*
 
 If anything goes wrong, run `busy-mcp doctor`. It explains in plain words what works and what to fix.
+
+**Before relying on it, take the 15-minute [production checklist](docs/production-checklist.md).** It compares
+five numbers with your BUSY.
 For Cursor, VS Code, Claude Code or ChatGPT, see [docs/clients.md](docs/clients.md).
 
 ## What it can read

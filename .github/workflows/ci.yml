@@ -71,3 +71,32 @@ jobs:
         with:
           name: dist
           path: dist/
+
+  installer:
+    name: Windows installer (install.cmd, setup, doctor)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Run install.cmd as a user would (BUSY-specific setup runs in the next step)
+        shell: cmd
+        run: install.cmd -SkipSetup
+      - name: Guided setup against the test company, then doctor
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          .venv\Scripts\python.exe -c "import sys; sys.path.insert(0, 'tests'); from fixtures.busy_fixture import build; build('db12024.sqlite')"
+          $claude = Join-Path $env:RUNNER_TEMP "Claude\claude_desktop_config.json"
+          New-Item -ItemType Directory -Force (Split-Path $claude) | Out-Null
+          Set-Content -Path $claude -Value '{"mcpServers": {"other": {"command": "x"}}}'
+          .venv\Scripts\python.exe -m busy_mcp setup --backend sqlite --database db12024.sqlite --yes --claude-config $claude
+          if ($LASTEXITCODE -ne 0) { throw "setup failed" }
+          $cfg = Get-Content $claude -Raw | ConvertFrom-Json
+          if (-not $cfg.mcpServers.busy -or -not $cfg.mcpServers.other) { throw "Claude Desktop config not merged" }
+          if (-not (Get-ChildItem (Split-Path $claude) -Filter "claude_desktop_config.json.bak-*")) { throw "no backup" }
+          Push-Location $env:RUNNER_TEMP   # AI apps start the server from another folder
+          & "$env:GITHUB_WORKSPACE\.venv\Scripts\python.exe" -m busy_mcp doctor
+          if ($LASTEXITCODE -ne 0) { throw "doctor failed" }
+          Pop-Location

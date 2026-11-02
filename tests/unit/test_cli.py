@@ -118,3 +118,14 @@ def test_data_folder_detection(tmp_path):
     assert has_company_folders(str(good.parent))
     assert not has_company_folders(str(tmp_path))
     assert find_data_dirs([str(good.parent), str(tmp_path), str(Path("/nope"))]) == [str(good.parent)]
+
+
+def test_setup_stores_absolute_paths(db_path, tmp_path, monkeypatch):
+    """AI apps launch the server from another folder, so saved paths must be absolute."""
+    import shutil
+
+    shutil.copy(db_path, tmp_path / "db12024.sqlite")
+    monkeypatch.chdir(tmp_path)
+    args = _args(backend="sqlite", database="db12024.sqlite", no_claude=True)
+    assert run_setup(args, UI(True, out=lambda _: None)) == 0
+    assert read_config_file()["database"] == str(tmp_path / "db12024.sqlite")

@@ -68,7 +68,7 @@ def _access_values(args: Any, ui: UI) -> dict[str, Any]:
             ui.say("BUSY data was not found automatically.")
             ui.say("In BUSY, open Company > 'Set Data Directory' to see the folder (e.g. C:\\BusyWin\\DATA).")
             folder = ui.ask("Full path of the BUSY data folder", Settings().data_dir)
-    folder = folder.strip().strip('"')
+    folder = os.path.abspath(folder.strip().strip('"'))  # AI apps start the server from another folder
     if not has_company_folders(folder):
         raise BusyMCPError(f"'{folder}' does not contain BUSY company folders (COMP0001\\db1YYYY.bds).")
     return {"backend": "access", "data_dir": folder}
@@ -111,7 +111,7 @@ def run_setup(args: Any, ui: UI | None = None) -> int:
     ui.say("BUSY MCP setup. This only READS your BUSY data; nothing in BUSY is changed.\n")
     try:
         if getattr(args, "backend", None) == "sqlite":  # used by tests and demos
-            values: dict[str, Any] = {"backend": "sqlite", "database": args.database}
+            values: dict[str, Any] = {"backend": "sqlite", "database": os.path.abspath(args.database)}
         elif args.sql_server:
             values = _sql_values(args, ui)
         elif args.data_dir:

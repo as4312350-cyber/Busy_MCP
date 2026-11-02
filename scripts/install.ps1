@@ -2,11 +2,12 @@
 #
 # Normally started by double-clicking install.cmd in the project folder.
 # Advanced use:
-#   powershell -ExecutionPolicy Bypass -File scripts\install.ps1 [-DataDir C:\BusyWin\DATA] [-SqlServer HOST\INSTANCE] [-Yes]
+#   powershell -ExecutionPolicy Bypass -File scripts\install.ps1 [-DataDir C:\BusyWin\DATA] [-SqlServer HOST\INSTANCE] [-Yes] [-SkipSetup]
 param(
     [string]$DataDir = "",
     [string]$SqlServer = "",
-    [switch]$Yes
+    [switch]$Yes,
+    [switch]$SkipSetup   # install only; run "python -m busy_mcp setup" later (used by CI)
 )
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
@@ -36,6 +37,11 @@ $venvPy = Join-Path $Root ".venv\Scripts\python.exe"
 & $venvPy -m pip install --upgrade pip --quiet --disable-pip-version-check
 & $venvPy -m pip install . --quiet --disable-pip-version-check
 if ($LASTEXITCODE -ne 0) { Write-Host "Installing packages failed (see messages above)." -ForegroundColor Red; exit 1 }
+
+if ($SkipSetup) {
+    Write-Host "Installed. Next step:  .venv\Scripts\python.exe -m busy_mcp setup" -ForegroundColor Green
+    exit 0
+}
 
 # 3. Guided setup: finds BUSY, tests it, connects Claude Desktop
 $setupArgs = @("-m", "busy_mcp", "setup")
