@@ -126,6 +126,88 @@ jobs:
         shell: cmd
         run: install.cmd -SkipSetup
 
+  installer-bootstrap:
+    name: Windows installer downloads its own 32-bit Python (-BootstrapPython)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      # A fresh checkout has no .venv and no .python32, like a newly unzipped download. -BootstrapPython makes the
+      # installer use its private Python although this runner has other Pythons; -Yes answers its question.
+      - name: Download the pinned official 32-bit Python into .python32 and install busy-mcp with it
+        shell: cmd
+        run: install.cmd -SkipSetup -BootstrapPython -Yes
+      - name: Check .python32 and .venv (32-bit, pinned version, made from .python32, pyodbc and busy_mcp load)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          . .\scripts\install.ps1   # the installer's functions and pinned version only
+          $root = $env:GITHUB_WORKSPACE
+          $ownPy = Join-Path $root ".python32\tools\python.exe"
+          $venvPy = Join-Path $root ".venv\Scripts\python.exe"
+          $probe = "import struct, sys; print('%d.%d.%d %d' % (sys.version_info[:3] + (struct.calcsize('P') * 8,)))"
+          foreach ($exe in $ownPy, $venvPy) {
+            $out = & $exe -c $probe
+            if ($LASTEXITCODE -ne 0) { throw "$exe does not run" }
+            Write-Host "$exe -> $out"
+            $version, $bits = "$out".Trim().Split(" ")
+            if ($bits -ne "32" -or $version -ne $PrivateVersion) { throw "$exe is $out; expected $PrivateVersion, 32-bit" }
+          }
+          $cfg = @(Get-Content -LiteralPath (Join-Path $root ".venv\pyvenv.cfg"))
+          $cfg | ForEach-Object { Write-Host "pyvenv.cfg: $_" }
+          $venvHome = (@($cfg | Where-Object { $_ -match '^\s*home\s*=' })[0] -replace '^\s*home\s*=\s*', '').Trim().TrimEnd('\')
+          if ($venvHome -ne (Join-Path $root ".python32\tools")) { throw ".venv was made from '$venvHome', not from .python32\tools" }
+          & $venvPy -c "import pyodbc, busy_mcp; print('pyodbc', pyodbc.version, 'busy_mcp', busy_mcp.__version__, pyodbc.drivers())"
+          if ($LASTEXITCODE -ne 0) { throw "pyodbc or busy_mcp does not load in .venv" }
+          $listed = @(Get-InstalledPythons $root | Where-Object { $_.Path -eq $ownPy })
+          if ($listed.Count -ne 1) { throw "the installer does not list .python32 among the installed Pythons" }
+          Write-Host "Listed among the installed Pythons: $($listed[0].Path)"
+          foreach ($left in @(Get-ChildItem -LiteralPath (Join-Path $root ".python32") -Force | Where-Object { $_.Name -ne "tools" })) {
+            Write-Host "::warning::left over in .python32 after the download: $($left.Name)"
+          }
+          exit 0
+      - name: Run install.cmd again, which reuses .python32 and keeps .venv
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $marker = Join-Path $env:GITHUB_WORKSPACE ".python32\ci-marker.txt"
+          Set-Content -LiteralPath $marker -Value "a new download would delete this file"
+          $cfg = Join-Path $env:GITHUB_WORKSPACE ".venv\pyvenv.cfg"
+          $before = (Get-Item -LiteralPath $cfg).LastWriteTimeUtc
+          & .\install.cmd -SkipSetup -BootstrapPython -Yes
+          if ($LASTEXITCODE -ne 0) { throw "the second run failed" }
+          if (-not (Test-Path -LiteralPath $marker)) { throw ".python32 was downloaded again instead of being reused" }
+          if ((Get-Item -LiteralPath $cfg).LastWriteTimeUtc -ne $before) { throw ".venv was rebuilt although the Python did not change" }
+          Write-Host "Reused .python32 and .venv"
+          exit 0
+      - uses: actions/setup-python@v7
+        id: py32
+        with:
+          python-version: "3.14"
+          architecture: x86
+      - name: Another Python (-Python) and back to .python32 (-BootstrapPython) each rebuild .venv, without a new download
+        shell: powershell
+        env:
+          PY32: ${{ steps.py32.outputs.python-path }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          . .\scripts\install.ps1   # for Get-VenvHome
+          $root = $env:GITHUB_WORKSPACE
+          $marker = Join-Path $root ".python32\ci-marker.txt"
+          & .\install.cmd -SkipSetup -Python $env:PY32
+          if ($LASTEXITCODE -ne 0) { throw "install.cmd -Python failed" }
+          $venvHome = (Get-VenvHome (Join-Path $root ".venv")).TrimEnd('\')
+          if ($venvHome -ne (Split-Path -Parent $env:PY32)) { throw ".venv was not rebuilt with $env:PY32 (home is $venvHome)" }
+          Write-Host ".venv now comes from $venvHome"
+          & .\install.cmd -SkipSetup -BootstrapPython -Yes
+          if ($LASTEXITCODE -ne 0) { throw "install.cmd -BootstrapPython failed" }
+          $venvHome = (Get-VenvHome (Join-Path $root ".venv")).TrimEnd('\')
+          if ($venvHome -ne (Join-Path $root ".python32\tools")) { throw ".venv was not rebuilt with .python32 (home is $venvHome)" }
+          if (-not (Test-Path -LiteralPath $marker)) { throw ".python32 was downloaded again instead of being reused" }
+          & (Join-Path $root ".venv\Scripts\python.exe") -c "import pyodbc, busy_mcp; print('back on .python32, imports ok')"
+          if ($LASTEXITCODE -ne 0) { throw "pyodbc or busy_mcp does not load after switching back" }
+          exit 0
+
   access:
     name: Reports on a real Microsoft Access database (Windows, 32-bit)
     runs-on: windows-latest

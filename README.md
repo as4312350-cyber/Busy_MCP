@@ -24,14 +24,17 @@ BUSY's own company files directly; it cannot change anything in BUSY.
 
 ## Install (Windows, about 5 minutes)
 
-1. Install **Python 3.14, 32-bit** ("Windows installer (32-bit)") from
-   [python.org](https://www.python.org/downloads/windows/). Tick **Add python.exe to PATH**.
-   - Why 32-bit: BUSY's data is read through Microsoft's Access driver, which is 32-bit on most PCs.
-   - Python 3.10 to 3.14 all work. If you have several, the installer picks the one that matches the driver.
-   - **Not Python 3.15 yet:** pyodbc, the database driver, has no ready-made Windows package for it
-     (November 2026).
-2. Download this project (green **Code** button on GitHub → **Download ZIP**), unzip it (e.g. to
-   `C:\Busy_MCP`), and **double-click `install.cmd`**.
+1. Download this project (green **Code** button on GitHub → **Download ZIP**) and unzip it, e.g. to
+   `C:\Busy_MCP`.
+2. **Double-click `install.cmd`.** You don't need to install Python first:
+   - If the PC has a Python that works with BUSY (3.10 to 3.14), the installer uses it.
+   - If not (no Python, only Python 3.15, or only 64-bit Python while BUSY's Access driver is 32-bit), it offers
+     to download the official **32-bit Python 3.14** (about 14 MB). Press **Enter** to accept.
+
+   That Python is the one the Python Software Foundation publishes for build tools
+   ([pythonx86 on nuget.org](https://www.nuget.org/packages/pythonx86)). The installer checks the download against
+   a fixed SHA-256 fingerprint and keeps it in the `.python32` folder inside the project. Nothing is installed on
+   the PC itself, and deleting the project folder removes it.
 
 The installer sets everything up and then runs `busy-mcp setup`, which:
 
@@ -47,6 +50,21 @@ If anything goes wrong, run `busy-mcp doctor`. It explains in plain words what w
 **Before relying on it, take the 15-minute [production checklist](docs/production-checklist.md).** It compares
 five numbers with your BUSY.
 For Cursor, VS Code, Claude Code or ChatGPT, see [docs/clients.md](docs/clients.md).
+
+### Installing Python yourself (optional)
+
+Do this if you prefer, or if the installer's download fails (no internet, or a proxy blocks it). Any Python
+3.10–3.14 works; **32-bit** is preferred because BUSY's Access driver is 32-bit. On
+[python.org's Windows downloads page](https://www.python.org/downloads/windows/), either:
+
+* get the **Python install manager**, then open **Command Prompt** from the Start menu and run
+  `py install 3.14-32`; or
+* under a Python 3.14 release, click **Windows installer (32-bit)**.
+
+Then double-click `install.cmd` again. If several Pythons are installed, it picks the one that suits BUSY.
+
+**Not Python 3.15 yet:** pyodbc, the database driver, has no ready-made Windows package for it
+(November 2026).
 
 ## What it can read
 
