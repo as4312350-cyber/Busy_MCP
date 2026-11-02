@@ -35,10 +35,11 @@ src/busy_mcp/
 │   ├── prompts.py      Workflow prompts
 │   └── http.py         ASGI guard: bearer token, Origin allow-list, body cap
 └── cli/
-    ├── __init__.py     `busy-mcp [serve|setup|doctor]`
+    ├── __init__.py     `busy-mcp [serve|setup|doctor|verify]`
     ├── serve.py        stdio / HTTP serving
     ├── wizard.py       Guided setup
     ├── doctor.py       Diagnostics
+    ├── verify.py       Consistency checks on the user's data; five numbers to compare with BUSY
     └── clients.py      Claude Desktop registration (backup + atomic write), client snippets
 ```
 

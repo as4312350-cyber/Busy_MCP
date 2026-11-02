@@ -80,5 +80,7 @@ server at start-up with a message naming the setting.
 busy-mcp                  run the MCP server over stdio (what AI apps launch)
 busy-mcp setup            guided setup (find BUSY, test, save settings, connect Claude Desktop)
 busy-mcp doctor           diagnose Python, drivers, data, configuration
+busy-mcp verify           check the numbers on your own data and list five to compare with BUSY
+                          (--party, --item, --company, --fy, --redact, --json, --out FILE)
 busy-mcp serve --http     serve over HTTP for remote clients (token required)
 ```

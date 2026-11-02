@@ -32,7 +32,7 @@ src/busy_mcp/
   db/        connection, discovery, drivers
   reports/   pure report functions (no MCP imports)
   server/    MCP wiring: registry, state, tools/ (one module per feature area), prompts, http
-  cli/       busy-mcp serve | setup | doctor
+  cli/       busy-mcp serve | setup | doctor | verify
 tests/
   fixtures/      a small company in BUSY's exact layout, with the story and expected numbers
   unit/          reports, features, index & freshness, explorer, SQL guard, config, CLI, in-process tools

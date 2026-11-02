@@ -42,6 +42,7 @@ The installer sets everything up and then runs `busy-mcp setup`, which:
 Restart Claude Desktop and ask: *"Show my BUSY dashboard for this year."*
 
 If anything goes wrong, run `busy-mcp doctor`. It explains in plain words what works and what to fix.
+`busy-mcp verify` checks busy-mcp's numbers on your own data and picks five to compare with BUSY.
 
 **Before relying on it, take the 15-minute [production checklist](docs/production-checklist.md).** It compares
 five numbers with your BUSY.

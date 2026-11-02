@@ -23,24 +23,51 @@ installing and again after every BUSY upgrade. If every number matches, you can 
    fix; [troubleshooting.md](troubleshooting.md) has the details.
 3. Restart Claude Desktop (quit it from the system tray too) and ask: *"Show my BUSY dashboard for this year."*
 
-## 2. Acceptance test: compare five numbers with BUSY (10 minutes)
+## 2. Acceptance test: verify, then compare five numbers with BUSY (10 minutes)
 
-Use the same company, financial year and dates in both places.
+1. Run `busy-mcp verify`:
 
-| # | Ask the AI | Compare with BUSY | Must match |
+   ```text
+   C:\Busy_MCP\.venv\Scripts\python.exe -m busy_mcp verify
+   ```
+
+   It reads your company (it changes nothing) and checks, in plain words, that:
+   - every voucher balances
+   - the trial balance tallies
+   - busy-mcp's fast summary agrees with your vouchers
+   - pending bills add up to each party's ledger balance
+   - the stock summary adds up
+   - opening balances were carried forward into this year
+
+   No line may say `[FAIL]`. A `[WARN]` line explains something to keep in mind, and `[INFO]` lines are
+   counts. Then it works out the five numbers in the table below and says where to find each one in BUSY.
+
+   - `--party "Name"` and `--item "Name"` use a customer or item you know well for numbers 2, 4 and 5.
+   - `--company COMP0002` and `--fy 2023` check another company or financial year.
+   - `--redact --out verify.txt` saves a copy with names replaced by "Party 1", "Item 1" and so on, safe
+     to share. `--json` gives the same report in machine-readable form.
+
+2. Compare the five numbers with BUSY's own screens. Use the same company, financial year and dates in both
+   places. You can also ask the AI: it uses the same reports, so its answers are the same numbers.
+
+| # | `busy-mcp verify` shows (or ask the AI) | Compare with BUSY | Must match |
 |---|---|---|---|
-| 1 | "Trial balance as on 31 March, group totals only" | BUSY's Trial Balance (Display menu) | Total debit = total credit, and `net_difference` is 0.00 |
-| 2 | "Ledger of *<a customer you know well>* for this year" | BUSY's ledger of that account | Opening and closing balance |
-| 3 | "Total sales by month this year" | BUSY's Sales Register / monthly summary | Each month's total |
-| 4 | "Closing stock of *<an item you know well>*" | BUSY's Stock Status for that item | Closing quantity |
-| 5 | "Bill-wise outstanding of *<a customer with pending bills>*" | BUSY's Outstanding / bill-wise report | Pending amount of each bill |
+| 1 | Trial balance totals ("Trial balance as on 31 March, group totals only") | BUSY's Trial Balance (Display menu) | Total debit = total credit, and the difference (`net_difference`) is 0.00 |
+| 2 | Ledger of the customer with the largest balance ("Ledger of *<a customer you know well>* for this year") | BUSY's ledger of that account | Opening and closing balance |
+| 3 | Sales per month ("Total sales by month this year") | BUSY's Sales Register / monthly summary | Each month's total |
+| 4 | Closing stock of the item with the most movement ("Closing stock of *<an item you know well>*") | BUSY's Stock Status for that item | Closing quantity |
+| 5 | Pending bills of the party with the most bills ("Bill-wise outstanding of *<a customer with pending bills>*") | BUSY's Outstanding / bill-wise report | Pending amount of each bill |
+
+If `busy-mcp verify` says the trial balance differs by exactly the value of your opening stock, that is
+expected: busy-mcp's trial balance lists accounts only and leaves stock out.
 
 **All five match:** you're ready. Keep a note of the date and BUSY version.
 
-**A number differs:** don't use that report yet. Send the output of `busy-mcp doctor` and the tool's answer
-(open an issue with names and amounts removed). Most differences come from a local convention that one
-setting fixes, for example `BUSY_PL_GROUPS`, `BUSY_DEBTOR_GROUPS`, `BUSY_ITEM_RECTYPES` or
-`BUSY_VCH_TYPE_NAMES` ([configuration.md](configuration.md)).
+**A number differs:** don't use that report yet. Send the output of `busy-mcp doctor`, the report saved by
+`busy-mcp verify --redact --out verify.txt` and the tool's answer (open an issue with names and amounts
+removed). Most differences come from a local convention that one setting fixes, for example
+`BUSY_PL_GROUPS`, `BUSY_DEBTOR_GROUPS`, `BUSY_ITEM_RECTYPES` or `BUSY_VCH_TYPE_NAMES`
+([configuration.md](configuration.md)).
 
 Reports that say `method`, `confidence: likely` or `caveat` describe how they were calculated. Read those
 fields before relying on the number.
