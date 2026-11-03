@@ -18,6 +18,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
   "`project.license` as a TOML table is deprecated" warning that pip printed during install.
 
 ### Added
+- **The installer finds your BUSY data by itself**, on this PC or on a server, so you never have to type a path:
+  - it looks next to a **running BUSY** (the program's own folder shows where it lives);
+  - then in the usual places on every drive, mapped network drives included;
+  - and, if that finds nothing, searches the drives a few levels down (at most 25 seconds);
+  - when several data folders exist, the one with a **company open in BUSY right now** wins (Microsoft's Access
+    engine keeps a small lock file next to an open company), otherwise the most recently saved;
+  - with several companies in that folder, the **open** one is connected.
+  Only if nothing is found does it ask you for the folder.
 - CI step: with no BUSY data on the machine, the one-command install must end with exit code 4 and the
   friendly message, with no error trace.
 

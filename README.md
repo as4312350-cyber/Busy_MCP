@@ -42,8 +42,10 @@ That's all. It downloads busy-mcp into `%USERPROFILE%\Busy_MCP` and does everyth
 * **Access engine:** if your BUSY files turn out to need Microsoft's Access Database Engine (only the newer
   `.accdb` format does), it downloads it from Microsoft, checks Microsoft's signature, and installs it.
   Windows asks permission once; choose **Yes**.
-* **BUSY and Claude:** finds your BUSY data (or SQL Server), tests it, and connects **Claude Desktop** after
-  backing up its settings.
+* **BUSY and Claude:** finds your BUSY data by itself, on this PC or on a server, tests it, and connects
+  **Claude Desktop** after backing up its settings. **Open BUSY and your company first**: the installer then
+  knows which company to connect. If it can't find the data it asks you for the folder
+  (BUSY: Company > Set Data Directory). For BUSY's SQL Server edition, it asks for the server name.
 
 Run the same line again whenever you want to update; your settings are kept.
 

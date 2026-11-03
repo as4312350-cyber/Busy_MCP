@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import Settings, read_config_file, settings_from, write_config_file
-from ..db import BusyDB, choose_target, data_folder_problem, discover_targets, find_data_dirs
+from ..db import BusyDB, choose_target, data_folder_problem, discover_targets, find_data_dirs, open_companies
 from ..db.connection import is_unrecognized_format
 from ..errors import BusyMCPError
 from .clients import claude_desktop_config_path, register_claude_desktop, snippets
@@ -84,7 +84,8 @@ def _access_values(args: Any, ui: UI) -> dict[str, Any]:
         found = find_data_dirs([Settings().data_dir])
         if found:
             ui.say("Found BUSY data in:")
-            options = [*found, "Another folder"]
+            options = [f"{f}   (a company is open in BUSY right now)" if open_companies(f) else f for f in found]
+            options.append("Another folder")
             pick = ui.choose("Which one should be used?", options)
             folder = found[pick] if pick < len(found) else ui.ask("Full path of the BUSY data folder")
         else:
@@ -166,10 +167,15 @@ def run_setup(args: Any, ui: UI | None = None) -> int:
         return 1
 
     companies = sorted({t.company for t in targets if t.company})
+    in_use = [c for c in open_companies(str(values.get("data_dir") or "")) if c in companies]
     if args.company:
         values["company"] = args.company
     elif len(companies) > 1:
-        values["company"] = companies[ui.choose("Which company should be the default?", companies)]
+        if in_use and ui.yes:
+            values["company"] = in_use[0]  # the company open in BUSY right now is the one to connect
+            ui.say(f"Using {in_use[0]}, the company open in BUSY right now.")
+        else:
+            values["company"] = companies[ui.choose("Which company should be the default?", companies)]
 
     merged = {**read_config_file(), **values}
     saved = write_config_file(merged)
