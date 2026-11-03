@@ -23,6 +23,14 @@ from .clients import claude_desktop_config_path, register_claude_desktop, snippe
 # lacks. scripts/install.ps1 reacts to it by installing ACE from Microsoft and running setup again.
 EXIT_NEEDS_ACE = 3
 
+# Exit code of `busy-mcp setup` when the BUSY data folder could not be found or opened. busy-mcp itself is fine;
+# scripts/install.ps1 asks the person for the folder and runs setup again.
+EXIT_NO_DATA = 4
+
+
+class NoDataFolder(BusyMCPError):
+    """The BUSY data folder is missing, empty or unreachable."""
+
 
 def _ace_installed() -> bool:
     """True if an Access Database Engine (ACE) ODBC driver is visible to this Python."""
@@ -87,7 +95,7 @@ def _access_values(args: Any, ui: UI) -> dict[str, Any]:
     folder = os.path.abspath(folder.strip().strip('"'))  # AI apps start the server from another folder
     problem = data_folder_problem(folder)  # says why, e.g. "The network path was not found"
     if problem:
-        raise BusyMCPError(problem)
+        raise NoDataFolder(problem)
     return {"backend": "access", "data_dir": folder}
 
 
@@ -138,6 +146,12 @@ def run_setup(args: Any, ui: UI | None = None) -> int:
         else:
             values = _access_values(args, ui)
         _, targets = _test(values, ui)
+    except NoDataFolder as exc:
+        ui.say(f"\nSetup could not find your BUSY data: {exc}")
+        ui.say("In BUSY, open Company > 'Set Data Directory' to see the folder, then run setup again with it:")
+        ui.say("  busy-mcp setup --data-dir \"C:\\path\\to\\BUSY\\DATA\"")
+        ui.say("(SQL Server edition: use  --sql-server HOST\\INSTANCE  instead.)")
+        return EXIT_NO_DATA
     except BusyMCPError as exc:
         ui.say(f"\nSetup could not read BUSY: {exc}")
         if is_unrecognized_format(str(exc)):

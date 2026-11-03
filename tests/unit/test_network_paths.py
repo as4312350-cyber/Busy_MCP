@@ -13,7 +13,7 @@ import types
 import pytest
 
 from busy_mcp.cli.doctor import run_doctor
-from busy_mcp.cli.wizard import UI, run_setup
+from busy_mcp.cli.wizard import EXIT_NO_DATA, UI, run_setup
 from busy_mcp.config import Settings
 from busy_mcp.db import data_folder_problem, discover_targets, has_company_folders, is_network_path, is_unc_path
 from busy_mcp.errors import BusyConnectionError
@@ -132,7 +132,7 @@ def test_setup_explains_an_unreachable_network_folder(monkeypatch):
     args = type("Args", (), {"data_dir": UNC, "sql_server": None, "sql_user": None, "company": None,
                              "backend": None, "database": None, "claude_config": None, "no_claude": True,
                              "yes": True})()
-    assert run_setup(args, UI(True, out=lines.append)) == 1
+    assert run_setup(args, UI(True, out=lines.append)) == EXIT_NO_DATA
     text = "\n".join(lines)
     assert "The network path was not found" in text and "network folder" in text
     assert "does not contain BUSY company folders" not in text  # the old, misleading message

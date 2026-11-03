@@ -495,6 +495,22 @@ jobs:
           if (-not (Test-Path (Join-Path $env:HOME_DIR ".venv\keep-me.txt"))) { throw ".venv was rebuilt although nothing changed" }
           Write-Host "updated in place, .venv kept"
 
+      - name: No BUSY data on this PC is a friendly outcome, not a crash
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Continue"
+          $out = & powershell -NoProfile -ExecutionPolicy Bypass -File scripts\get.ps1 -ZipPath $env:ZIP_PATH -Dir $env:HOME_DIR 2>&1 | ForEach-Object { "$_" }
+          $code = $LASTEXITCODE
+          $out | ForEach-Object { Write-Host $_ }
+          $text = $out -join "`n"
+          if ($code -ne 4) { throw "expected exit code 4 (installed, no BUSY data found), got $code" }
+          foreach ($need in @("could not find your BUSY data", "just needs to be told where your BUSY data is", "--data-dir")) {
+            if ($text -notlike "*$need*") { throw "output lacks: $need" }
+          }
+          if ($text -like "*At line:*") { throw "a PowerShell error trace was shown" }
+          Write-Host "no BUSY data: installed, told the person what to do, exit code 4"
+          exit 0
+
   installer-ace:
     name: Installer adds the Access Database Engine when BUSY's file needs it (Windows, 32-bit)
     runs-on: windows-latest

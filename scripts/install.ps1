@@ -348,6 +348,12 @@ function Write-PythonHelp {
     foreach ($line in $help) { Write-Host $line -ForegroundColor Yellow }
 }
 
+function Test-CanAsk {
+    # True when a person can type an answer here (not CI, input not redirected).
+    if ($env:CI) { return $false }
+    try { return -not [Console]::IsInputRedirected } catch { return $false }
+}
+
 # Dot-sourced by tests\windows\test_install.ps1: define the functions above, install nothing.
 if ($MyInvocation.InvocationName -eq ".") { return }
 
@@ -464,6 +470,25 @@ if ($LASTEXITCODE -eq 3 -and (Get-AccessDriverScore)[$chosen.Bits] -lt 2) {
         Write-Host "Running setup again."
         & $venvPy @setupArgs
     }
+}
+if ($LASTEXITCODE -eq 4) {
+    # busy-mcp is installed; only the BUSY data folder is unknown. Ask for it when someone can answer.
+    $tries = 0
+    while ($LASTEXITCODE -eq 4 -and $tries -lt 3 -and (Test-CanAsk)) {
+        $tries++
+        Write-Host ""
+        $typed = Read-Host "Type the full path of your BUSY data folder (BUSY: Company > Set Data Directory), or press Enter to do it later"
+        $typed = "$typed".Trim().Trim('"')
+        if (-not $typed) { break }
+        $retry = @("-m", "busy_mcp", "setup", "--data-dir", $typed)
+        if ($Yes) { $retry += "--yes" }
+        & $venvPy @retry
+    }
+}
+if ($LASTEXITCODE -eq 4) {
+    Write-Host ""
+    Write-Host "busy-mcp is installed, but it is not connected to your BUSY data yet." -ForegroundColor Yellow
+    exit 4
 }
 if ($LASTEXITCODE -ne 0) {
     Write-Host ""

@@ -3,6 +3,24 @@
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.2.2] — 2026-11-03
+
+### Fixed
+- **No BUSY data at the usual place ended the install with a red error.** The first real run of the
+  one-command install on a PC showed it: Python and busy-mcp installed fine, but the data was not in
+  `C:\BusyWin\DATA`, and setup stopped with a PowerShell error trace. Now:
+  - `busy-mcp setup` exits with code 4 when the BUSY data folder can't be found or opened;
+  - the installer asks you to type the folder (BUSY: Company > Set Data Directory) and finishes setup;
+  - if you skip, it says "installed, not connected to your BUSY data yet" and prints the exact command to run
+    later, including the SQL Server variant.
+- `get.ps1` no longer throws under `irm | iex`; it ends with a message and never closes your window.
+- Packaging: the license is declared as an SPDX expression (`MIT`), which removes the long
+  "`project.license` as a TOML table is deprecated" warning that pip printed during install.
+
+### Added
+- CI step: with no BUSY data on the machine, the one-command install must end with exit code 4 and the
+  friendly message, with no error trace.
+
 ## [1.2.1] — 2026-11-03
 
 ### Added
