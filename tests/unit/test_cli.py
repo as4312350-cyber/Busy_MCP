@@ -144,6 +144,13 @@ def test_setup_asks_the_installer_for_ace_when_the_file_needs_it(monkeypatch, tm
                                   "a database that your application recognizes (-1028) (SQLDriverConnect)")
 
     monkeypatch.setattr(wizard, "_test", refuse)
+    monkeypatch.setattr(wizard, "_ace_installed", lambda: False)
     lines: list[str] = []
     assert run_setup(_args(data_dir=str(tmp_path), no_claude=True), UI(True, out=lines.append)) == EXIT_NEEDS_ACE == 3
-    assert any("Access Database Engine" in x for x in lines)
+    assert any("not installed" in x for x in lines)
+
+    # With ACE present the file itself is the problem: exit 1, so the installer doesn't loop installing ACE.
+    monkeypatch.setattr(wizard, "_ace_installed", lambda: True)
+    lines.clear()
+    assert run_setup(_args(data_dir=str(tmp_path), no_claude=True), UI(True, out=lines.append)) == 1
+    assert any("could not read this file" in x for x in lines)

@@ -536,6 +536,7 @@ jobs:
           $missing = @($must | Where-Object { $text -notlike "*$_*" })
           if ($missing.Count) { throw "the installer output lacks: $($missing -join '; ')" }
           Write-Host "ACE installed by install.ps1 after setup asked for it"
+          exit 0   # the installer's own exit code (setup cannot read the fake file) must not decide this step
       - name: With ACE installed, setup reads a real .accdb BUSY file
         shell: powershell
         run: |
