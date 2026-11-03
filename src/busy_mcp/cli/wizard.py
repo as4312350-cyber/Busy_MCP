@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import Settings, read_config_file, settings_from, write_config_file
-from ..db import BusyDB, choose_target, data_folder_problem, discover_targets, find_data_dirs
+from ..db import BusyDB, choose_target, data_folder_problem, discover_targets, find_data_dirs, open_companies
 from ..db.connection import is_unrecognized_format
 from ..errors import BusyMCPError
 from .clients import claude_desktop_config_path, register_claude_desktop, snippets
@@ -22,6 +22,14 @@ from .clients import claude_desktop_config_path, register_claude_desktop, snippe
 # Exit code of `busy-mcp setup` when BUSY's file needs the Microsoft Access Database Engine (ACE) that this PC
 # lacks. scripts/install.ps1 reacts to it by installing ACE from Microsoft and running setup again.
 EXIT_NEEDS_ACE = 3
+
+# Exit code of `busy-mcp setup` when the BUSY data folder could not be found or opened. busy-mcp itself is fine;
+# scripts/install.ps1 asks the person for the folder and runs setup again.
+EXIT_NO_DATA = 4
+
+
+class NoDataFolder(BusyMCPError):
+    """The BUSY data folder is missing, empty or unreachable."""
 
 
 def _ace_installed() -> bool:
@@ -76,7 +84,8 @@ def _access_values(args: Any, ui: UI) -> dict[str, Any]:
         found = find_data_dirs([Settings().data_dir])
         if found:
             ui.say("Found BUSY data in:")
-            options = [*found, "Another folder"]
+            options = [f"{f}   (a company is open in BUSY right now)" if open_companies(f) else f for f in found]
+            options.append("Another folder")
             pick = ui.choose("Which one should be used?", options)
             folder = found[pick] if pick < len(found) else ui.ask("Full path of the BUSY data folder")
         else:
@@ -87,7 +96,7 @@ def _access_values(args: Any, ui: UI) -> dict[str, Any]:
     folder = os.path.abspath(folder.strip().strip('"'))  # AI apps start the server from another folder
     problem = data_folder_problem(folder)  # says why, e.g. "The network path was not found"
     if problem:
-        raise BusyMCPError(problem)
+        raise NoDataFolder(problem)
     return {"backend": "access", "data_dir": folder}
 
 
@@ -138,6 +147,12 @@ def run_setup(args: Any, ui: UI | None = None) -> int:
         else:
             values = _access_values(args, ui)
         _, targets = _test(values, ui)
+    except NoDataFolder as exc:
+        ui.say(f"\nSetup could not find your BUSY data: {exc}")
+        ui.say("In BUSY, open Company > 'Set Data Directory' to see the folder, then run setup again with it:")
+        ui.say("  busy-mcp setup --data-dir \"C:\\path\\to\\BUSY\\DATA\"")
+        ui.say("(SQL Server edition: use  --sql-server HOST\\INSTANCE  instead.)")
+        return EXIT_NO_DATA
     except BusyMCPError as exc:
         ui.say(f"\nSetup could not read BUSY: {exc}")
         if is_unrecognized_format(str(exc)):
@@ -152,10 +167,15 @@ def run_setup(args: Any, ui: UI | None = None) -> int:
         return 1
 
     companies = sorted({t.company for t in targets if t.company})
+    in_use = [c for c in open_companies(str(values.get("data_dir") or "")) if c in companies]
     if args.company:
         values["company"] = args.company
     elif len(companies) > 1:
-        values["company"] = companies[ui.choose("Which company should be the default?", companies)]
+        if in_use and ui.yes:
+            values["company"] = in_use[0]  # the company open in BUSY right now is the one to connect
+            ui.say(f"Using {in_use[0]}, the company open in BUSY right now.")
+        else:
+            values["company"] = companies[ui.choose("Which company should be the default?", companies)]
 
     merged = {**read_config_file(), **values}
     saved = write_config_file(merged)

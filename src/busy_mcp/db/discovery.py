@@ -222,9 +222,105 @@ def has_company_folders(path: str) -> bool:
     return data_folder_problem(path) is None
 
 
+_SKIP_DIRS = frozenset({
+    "windows", "$recycle.bin", "system volume information", "programdata", "appdata", "node_modules", ".git",
+    "$windows.~bt", "recovery", "perflogs", "winsxs", "temp", "tmp",
+})
+_COMP_RE = re.compile(r"^COMP\d+$", re.IGNORECASE)
+
+
+def scan_for_company_folders(roots: list[str], max_depth: int = 4, seconds: float = 25.0) -> list[str]:
+    """Data folders (those holding COMPnnnn company folders) found under `roots`, searching `max_depth` levels
+    down for at most `seconds`. Folders that can't be opened are skipped."""
+    import time
+
+    deadline = time.monotonic() + seconds
+    found: list[str] = []
+    queue: list[tuple[str, int]] = [(r, 0) for r in roots]
+    while queue and time.monotonic() < deadline:
+        folder, depth = queue.pop(0)
+        try:
+            with os.scandir(folder) as it:
+                subdirs = [e for e in it if e.is_dir(follow_symlinks=False)]
+        except OSError:
+            continue
+        if any(_COMP_RE.match(e.name) for e in subdirs) and has_company_folders(folder):
+            found.append(folder)
+            continue  # the company folders are below this one; nothing else to look for in it
+        if depth < max_depth:
+            queue += [(e.path, depth + 1) for e in subdirs if e.name.lower() not in _SKIP_DIRS]
+    return found
+
+
+def open_companies(data_dir: str) -> list[str]:
+    """Company folders (COMPnnnn) of `data_dir` that someone has open in BUSY right now. Microsoft's Access
+    engine keeps a small lock file (.ldb or .laccdb) beside a database while it is open."""
+    out: list[str] = []
+    try:
+        with os.scandir(data_dir) as it:
+            comps = sorted(e.path for e in it if e.is_dir() and _COMP_RE.match(e.name))
+    except OSError:
+        return out
+    for comp in comps:
+        try:
+            if any(n.lower().endswith((".ldb", ".laccdb")) for n in os.listdir(comp)):
+                out.append(os.path.basename(comp))
+        except OSError:
+            continue
+    return out
+
+
+def data_dir_rank(path: str) -> tuple[int, float]:
+    """Sort key, best first: a data folder with a company open in BUSY right now, then the one saved most recently."""
+    newest = 0.0
+    try:
+        for comp in os.scandir(path):
+            if comp.is_dir() and _COMP_RE.match(comp.name):
+                for f in os.scandir(comp.path):
+                    if f.name.lower().endswith(".bds"):
+                        newest = max(newest, f.stat().st_mtime)
+    except OSError:
+        pass
+    return (0 if open_companies(path) else 1, -newest)
+
+
+def running_busy_folders() -> list[str]:
+    """Folders around a BUSY program that is running now (Windows): where BUSY is installed usually shows where
+    its data is. Empty elsewhere, or when BUSY isn't running."""
+    if os.name != "nt":
+        return []
+    # One fixed, read-only command below; no user input reaches it.
+    import subprocess  # nosec B404
+
+    ps = ("Get-CimInstance Win32_Process | Where-Object { $_.Name -like 'busy*' -and $_.ExecutablePath } "
+          "| ForEach-Object { $_.ExecutablePath }")
+    powershell = os.path.join(os.environ.get("SYSTEMROOT", r"C:\Windows"), "System32", "WindowsPowerShell", "v1.0",
+                              "powershell.exe")  # the full path: nothing in PATH or the working folder can stand in
+    try:
+        # Fixed arguments: it only lists the programs whose name starts with busy.
+        out = subprocess.run(  # noqa: S603  # nosec B603
+            [powershell, "-NoProfile", "-NonInteractive", "-Command", ps],
+            capture_output=True, text=True, timeout=20).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    folders: list[str] = []
+    for line in out.splitlines():
+        exe = line.strip()
+        if exe:
+            here = os.path.dirname(exe)
+            folders += [here, os.path.dirname(here)]
+    return folders
+
+
 def find_data_dirs(extra: list[str] | None = None) -> list[str]:
-    """Best-effort search for BUSY data folders on this PC (Windows drives C: to Z:)."""
+    """Best-effort search for BUSY data folders, best first: the one with a company open in BUSY right now, then
+    the most recently saved. Looks next to a running BUSY, in the usual folders, and on every drive (mapped network
+    drives included) a few levels down."""
     candidates: list[str] = list(extra or [])
+    scan_roots: list[str] = []
+    for here in running_busy_folders():
+        candidates += [os.path.join(here, "DATA"), os.path.join(here, "Data"), here]
+        scan_roots.append(here)
     if os.name == "nt":
         import string
 
@@ -242,13 +338,22 @@ def find_data_dirs(extra: list[str] | None = None) -> list[str]:
                     if "busy" in entry.lower():
                         for sub in ("DATA", "Data", "data", ""):
                             candidates.append(os.path.join(base, entry, sub))
+            scan_roots.append(root)
     seen: set[str] = set()
     found = []
-    for c in candidates:
+
+    def add(c: str) -> None:
         key = os.path.normcase(os.path.abspath(c))
         if key not in seen and os.path.isdir(c) and has_company_folders(c):
             seen.add(key)
             found.append(c)
+
+    for c in candidates:
+        add(c)
+    if not found:  # the quick checks found nothing: search the drives a few levels down
+        for c in scan_for_company_folders(scan_roots):
+            add(c)
+    found.sort(key=data_dir_rank)
     return found
 
 

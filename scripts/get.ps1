@@ -70,8 +70,24 @@ $installArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path
 if ($SkipSetup) { $installArgs += "-SkipSetup" }
 if ($BootstrapPython) { $installArgs += "-BootstrapPython" }
 & powershell @installArgs
-if ($LASTEXITCODE -ne 0) {
-    throw "The installer did not finish (code $LASTEXITCODE). The messages above say why; fix that and run the same command again."
+$code = $LASTEXITCODE
+$venvPy = Join-Path $Dir ".venv\Scripts\python.exe"
+# Under "irm | iex" there is no script file ($PSCommandPath is empty): "exit" would close the person's window.
+$asFile = [bool]$PSCommandPath
+if ($code -eq 4) {
+    Write-Host ""
+    Write-Host "Installed. busy-mcp just needs to be told where your BUSY data is." -ForegroundColor Yellow
+    Write-Host "In BUSY, open Company > Set Data Directory to see the folder, then run:"
+    Write-Host ("  & """ + $venvPy + """ -m busy_mcp setup --data-dir ""C:\path\to\your\BUSY\DATA""")
+    Write-Host "(BUSY's SQL Server edition: use  --sql-server HOST\INSTANCE  instead.)"
+    if ($asFile) { exit 4 }
+    return
+}
+if ($code -ne 0) {
+    Write-Host ""
+    Write-Host "The installer did not finish (code $code). The messages above say why; fix that and run the same command again." -ForegroundColor Red
+    if ($asFile) { exit $code }
+    return
 }
 Write-Host ""
 Write-Host "Done. busy-mcp is in $Dir" -ForegroundColor Green

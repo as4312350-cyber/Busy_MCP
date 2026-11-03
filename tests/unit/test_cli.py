@@ -12,7 +12,7 @@ import pytest
 from busy_mcp.cli import main
 from busy_mcp.cli.clients import register_claude_desktop, server_entry, snippets
 from busy_mcp.cli.doctor import run_doctor
-from busy_mcp.cli.wizard import EXIT_NEEDS_ACE, UI, run_setup
+from busy_mcp.cli.wizard import EXIT_NEEDS_ACE, EXIT_NO_DATA, UI, run_setup
 from busy_mcp.config import config_path, read_config_file
 from busy_mcp.db import find_data_dirs, has_company_folders
 from busy_mcp.errors import BusyMCPError
@@ -46,15 +46,16 @@ def test_setup_saves_config_and_registers_claude_with_backup(db_path, tmp_path):
 
 def test_setup_reports_unreadable_data(tmp_path):
     lines: list[str] = []
-    assert run_setup(_args(data_dir=str(tmp_path), no_claude=True), UI(True, out=lines.append)) == 1
-    assert any("could not read BUSY" in x for x in lines)
+    assert run_setup(_args(data_dir=str(tmp_path), no_claude=True), UI(True, out=lines.append)) == EXIT_NO_DATA == 4
+    assert any("could not find your BUSY data" in x for x in lines)
+    assert any("--data-dir" in x for x in lines)
 
 
 def test_setup_interactive_choices(db_path, tmp_path):
     answers = iter(["n"])  # not SQL Server -> access path with typed folder (invalid) -> fails cleanly
     lines: list[str] = []
     ui = UI(assume_yes=False, input_fn=lambda _: next(answers, ""), out=lines.append)
-    assert run_setup(_args(yes=False, no_claude=True), ui) == 1
+    assert run_setup(_args(yes=False, no_claude=True), ui) == EXIT_NO_DATA
 
 
 def test_register_refuses_invalid_json(tmp_path):

@@ -1,9 +1,20 @@
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from busy_mcp.config import Settings
-from busy_mcp.db import access_conn_str, choose_target, discover_targets, drivers, sqlserver_conn_str
+from busy_mcp.db import (
+    access_conn_str,
+    choose_target,
+    data_dir_rank,
+    discover_targets,
+    drivers,
+    open_companies,
+    scan_for_company_folders,
+    sqlserver_conn_str,
+)
 from busy_mcp.errors import BusyConnectionError
 
 
@@ -89,3 +100,38 @@ def test_settings_from_env_validation(monkeypatch):
     monkeypatch.setenv("BUSY_BACKEND", "oracle")
     with pytest.raises(BusyConnectionError):
         Settings.from_env()
+
+
+def _company(root, name, *, open_now=False, saved=1000.0, comp="COMP0001"):  # type: ignore[no-untyped-def]
+    comp_dir = root / name / comp
+    comp_dir.mkdir(parents=True)
+    bds = comp_dir / "db12024.bds"
+    bds.write_bytes(b"x")
+    os.utime(bds, (saved, saved))
+    if open_now:
+        (comp_dir / "db12024.ldb").write_bytes(b"")
+    return root / name
+
+
+def test_scan_finds_data_folders_a_few_levels_down(tmp_path):
+    data = _company(tmp_path / "Apps" / "Accounts", "DATA")
+    (tmp_path / "Windows" / "System32").mkdir(parents=True)
+    assert scan_for_company_folders([str(tmp_path)]) == [str(data)]
+    assert scan_for_company_folders([str(tmp_path)], max_depth=1) == []  # too deep for this limit
+
+
+def test_scan_survives_missing_and_unreadable_roots(tmp_path):
+    assert scan_for_company_folders([str(tmp_path / "nope")]) == []
+
+
+def test_data_folder_with_a_company_open_in_busy_comes_first(tmp_path):
+    old = _company(tmp_path, "OldData", saved=9999.0)  # saved more recently, but nobody has it open
+    live = _company(tmp_path, "LiveData", open_now=True, saved=1000.0)
+    assert open_companies(str(live)) == ["COMP0001"] and open_companies(str(old)) == []
+    assert sorted([str(old), str(live)], key=data_dir_rank) == [str(live), str(old)]
+
+
+def test_without_an_open_company_the_most_recently_saved_folder_wins(tmp_path):
+    a = _company(tmp_path, "A", saved=1000.0)
+    b = _company(tmp_path, "B", saved=5000.0)
+    assert sorted([str(a), str(b)], key=data_dir_rank) == [str(b), str(a)]
