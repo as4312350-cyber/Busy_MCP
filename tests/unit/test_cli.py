@@ -12,7 +12,7 @@ import pytest
 from busy_mcp.cli import main
 from busy_mcp.cli.clients import register_claude_desktop, server_entry, snippets
 from busy_mcp.cli.doctor import run_doctor
-from busy_mcp.cli.wizard import UI, run_setup
+from busy_mcp.cli.wizard import EXIT_NEEDS_ACE, UI, run_setup
 from busy_mcp.config import config_path, read_config_file
 from busy_mcp.db import find_data_dirs, has_company_folders
 from busy_mcp.errors import BusyMCPError
@@ -129,3 +129,21 @@ def test_setup_stores_absolute_paths(db_path, tmp_path, monkeypatch):
     args = _args(backend="sqlite", database="db12024.sqlite", no_claude=True)
     assert run_setup(args, UI(True, out=lambda _: None)) == 0
     assert read_config_file()["database"] == str(tmp_path / "db12024.sqlite")
+
+
+def test_setup_asks_the_installer_for_ace_when_the_file_needs_it(monkeypatch, tmp_path):
+    """Jet cannot open an .accdb file: setup exits with the code that makes install.cmd install ACE."""
+    from busy_mcp.cli import wizard
+    from busy_mcp.errors import BusyConnectionError
+
+    (tmp_path / "COMP0001").mkdir()
+    (tmp_path / "COMP0001" / "db12024.bds").write_bytes(b"x")
+
+    def refuse(values, ui):  # type: ignore[no-untyped-def]
+        raise BusyConnectionError("Cannot open COMP0001/2024: [HY000] Cannot open database '(unknown)'. It may not be "
+                                  "a database that your application recognizes (-1028) (SQLDriverConnect)")
+
+    monkeypatch.setattr(wizard, "_test", refuse)
+    lines: list[str] = []
+    assert run_setup(_args(data_dir=str(tmp_path), no_claude=True), UI(True, out=lines.append)) == EXIT_NEEDS_ACE == 3
+    assert any("Access Database Engine" in x for x in lines)

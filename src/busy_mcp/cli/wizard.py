@@ -15,8 +15,13 @@ from typing import Any
 
 from ..config import Settings, read_config_file, settings_from, write_config_file
 from ..db import BusyDB, choose_target, data_folder_problem, discover_targets, find_data_dirs
+from ..db.connection import is_unrecognized_format
 from ..errors import BusyMCPError
 from .clients import claude_desktop_config_path, register_claude_desktop, snippets
+
+# Exit code of `busy-mcp setup` when BUSY's file needs the Microsoft Access Database Engine (ACE) that this PC
+# lacks. scripts/install.ps1 reacts to it by installing ACE from Microsoft and running setup again.
+EXIT_NEEDS_ACE = 3
 
 
 class UI:
@@ -125,6 +130,10 @@ def run_setup(args: Any, ui: UI | None = None) -> int:
         _, targets = _test(values, ui)
     except BusyMCPError as exc:
         ui.say(f"\nSetup could not read BUSY: {exc}")
+        if is_unrecognized_format(str(exc)):
+            ui.say("This BUSY file needs the Microsoft Access Database Engine (ACE), "
+                   "which is not installed for this Python.")
+            return EXIT_NEEDS_ACE
         ui.say("Run 'busy-mcp doctor' for a detailed diagnosis.")
         return 1
 
