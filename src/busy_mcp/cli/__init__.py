@@ -1,4 +1,4 @@
-"""Command line: ``busy-mcp [serve|setup|doctor]``.
+"""Command line: ``busy-mcp [serve|setup|doctor|verify]``.
 
 ``busy-mcp`` with no sub-command serves MCP over stdio, which is what AI
 clients such as Claude Desktop launch.
@@ -8,11 +8,21 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 
 from .. import __version__
 from ..errors import BusyMCPError
 from ..logging_setup import configure_logging
+
+
+def _fy_year(text: str) -> int:
+    """A financial year given by its start year: 2024, 2024-25 or 2024-2025 all mean 2024."""
+    m = re.fullmatch(r"\s*(\d{4})(?:\s*-\s*(?:\d{2}|\d{4}))?\s*", text)
+    if not m or not 1990 <= int(m.group(1)) <= 2100:
+        raise argparse.ArgumentTypeError("use the year the financial year starts in, e.g. 2024 for 2024-25 "
+                                         f"(got {text!r})")
+    return int(m.group(1))
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -42,6 +52,23 @@ def _parser() -> argparse.ArgumentParser:
     setup.add_argument("--yes", "-y", action="store_true", help="accept defaults, no questions")
 
     sub.add_parser("doctor", help="check Python, drivers, BUSY data and configuration")
+
+    verify = sub.add_parser(
+        "verify", help="check busy-mcp's numbers on your own BUSY data and list five numbers to compare with BUSY",
+        description="Checks busy-mcp's numbers on your own BUSY data (it only reads) and lists five numbers to "
+                    "compare with BUSY's own screens. Exit code 1 means at least one check failed.")
+    verify.add_argument("--company", help="company code, e.g. COMP0002 (default: the one busy-mcp normally uses)")
+    verify.add_argument("--fy", type=_fy_year, metavar="YEAR",
+                        help="financial year by its start year, e.g. 2024 for 2024-25 (default: the one busy-mcp "
+                             "normally uses, else the latest)")
+    verify.add_argument("--party", metavar="NAME", help="account to use for numbers 2 and 5 (default: the customer "
+                                                        "with the largest balance / the most pending bills)")
+    verify.add_argument("--item", metavar="NAME", help="item to use for number 4 (default: the most movement)")
+    verify.add_argument("--json", action="store_true", help="print the report as JSON")
+    verify.add_argument("--out", metavar="FILE", help="also save the report to FILE")
+    verify.add_argument("--redact", action="store_true",
+                        help='replace company, party and item names with "Party 1", "Item 1"... so the report '
+                             "is safe to share")
     return p
 
 
@@ -58,6 +85,10 @@ def main(argv: list[str] | None = None) -> None:
             from .doctor import run_doctor
 
             sys.exit(run_doctor())
+        if command == "verify":
+            from .verify import run_verify
+
+            sys.exit(run_verify(args))
         from .serve import serve
 
         serve(http=args.http, host=args.host, port=args.port)

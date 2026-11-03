@@ -2,6 +2,8 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+# the private 32-bit Python that install.cmd can download (scripts/install.ps1)
+.python32/
 build/
 dist/
 *.egg-info/
@@ -14,6 +16,7 @@ htmlcov/
 .env
 .env.*
 runtime-reqs.txt
+busy-benchmark.json
 # never commit company data
 *.bds
 *.mdb

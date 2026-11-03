@@ -57,13 +57,55 @@ def pick_sql_driver(settings: Settings) -> str:
     )
 
 
+def is_access_driver(name: str) -> bool:
+    """An ODBC driver for Access files: Windows' built-in Jet driver or the Access Database Engine's."""
+    return "access driver" in name.lower()
+
+
+def is_ace_driver(name: str) -> bool:
+    """The Access Database Engine (ACE) driver. It reads .mdb and .accdb files; Windows' Jet driver reads .mdb only."""
+    return is_access_driver(name) and "accdb" in name.lower()
+
+
+def access_drivers(installed: list[str]) -> list[str]:
+    """The Access ODBC drivers among `installed`, the Access Database Engine first."""
+    return sorted((d for d in installed if is_access_driver(d)), key=lambda d: not is_ace_driver(d))
+
+
+# Every Access file since Access 97 starts with 00 01 00 00 and a 15-byte engine name; byte 0x14 is the version.
+_ACCESS_MAGIC = b"\x00\x01\x00\x00"
+_ACCESS_ENGINES = {b"Standard Jet DB": "mdb", b"Standard ACE DB": "accdb"}
+_ACCESS_VERSIONS = {0: "Jet 3, Access 97", 1: "Jet 4, Access 2000-2003", 2: "ACE 12, Access 2007",
+                    3: "ACE 14, Access 2010", 5: "ACE 16", 6: "ACE 17"}
+
+
+def access_file_format(path: str) -> tuple[str, str]:
+    """The Access format of a BUSY file, read from its first 21 bytes: ("mdb" | "accdb" | "", description).
+
+    .mdb files ("Standard Jet DB") open with Windows' Jet driver and with the Access Database Engine; .accdb files
+    ("Standard ACE DB", Access 2007 and later) only with the Access Database Engine. Never raises.
+    """
+    try:
+        with open(path, "rb") as f:
+            head = f.read(21)
+    except OSError as exc:
+        return "", f"unknown (cannot read the file: {exc.strerror or exc})"
+    kind = _ACCESS_ENGINES.get(head[4:19], "") if len(head) == 21 and head[:4] == _ACCESS_MAGIC else ""
+    if not kind:
+        return "", f"not an Access database (first bytes: {head.hex(' ') or 'none'})"
+    version = _ACCESS_VERSIONS.get(head[20], f"version byte 0x{head[20]:02x}")
+    if kind == "mdb":
+        return kind, f".mdb ({version}); Windows' Jet driver and the Access Database Engine can both read it"
+    return kind, f".accdb ({version}); only the Microsoft Access Database Engine (ACE) can read it"
+
+
 def pick_access_driver(settings: Settings) -> str:
     drivers = pyodbc_module().drivers()
     if settings.access_driver in drivers:
         return settings.access_driver
-    for d in drivers:
-        if "access driver" in d.lower():
-            return d
+    found = access_drivers(drivers)
+    if found:
+        return found[0]
     bits = python_bits()
     raise BusyConnectionError(
         f"No Microsoft Access ODBC driver is visible to this {bits}-bit Python. Install the "

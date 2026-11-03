@@ -20,7 +20,9 @@ pytest --cov
 
 On Windows, `pytest --backend access tests/unit` runs the same tests against a real password-protected Access
 copy of the test company through Microsoft's Access driver. Use 32-bit Python to get Windows' built-in Jet
-driver. CI runs this on every push, because SQL that works on SQLite can still fail on Access.
+driver. CI runs this on every push, because SQL that works on SQLite can still fail on Access. With the Access
+Database Engine installed, `--access-driver ace --access-format accdb` builds and reads the copy in the newer
+`.accdb` format, as CI's `access-ace` job does; `--access-driver jet` insists on Jet.
 
 `python scripts/benchmark.py` measures report speed on a synthetic 50,000-voucher company.
 
@@ -32,7 +34,7 @@ src/busy_mcp/
   db/        connection, discovery, drivers
   reports/   pure report functions (no MCP imports)
   server/    MCP wiring: registry, state, tools/ (one module per feature area), prompts, http
-  cli/       busy-mcp serve | setup | doctor
+  cli/       busy-mcp serve | setup | doctor | verify
 tests/
   fixtures/      a small company in BUSY's exact layout, with the story and expected numbers
   unit/          reports, features, index & freshness, explorer, SQL guard, config, CLI, in-process tools

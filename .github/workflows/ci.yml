@@ -24,7 +24,7 @@ jobs:
           python-version: "3.12"
       - run: sudo apt-get update && sudo apt-get install -y unixodbc
       - run: pip install -e ".[dev]"
-      - run: ruff check src tests
+      - run: ruff check src tests scripts
       - run: mypy
       - run: bandit -q -r src -c pyproject.toml
       - name: Audit runtime dependencies
@@ -126,6 +126,88 @@ jobs:
         shell: cmd
         run: install.cmd -SkipSetup
 
+  installer-bootstrap:
+    name: Windows installer downloads its own 32-bit Python (-BootstrapPython)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      # A fresh checkout has no .venv and no .python32, like a newly unzipped download. -BootstrapPython makes the
+      # installer use its private Python although this runner has other Pythons; -Yes answers its question.
+      - name: Download the pinned official 32-bit Python into .python32 and install busy-mcp with it
+        shell: cmd
+        run: install.cmd -SkipSetup -BootstrapPython -Yes
+      - name: Check .python32 and .venv (32-bit, pinned version, made from .python32, pyodbc and busy_mcp load)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          . .\scripts\install.ps1   # the installer's functions and pinned version only
+          $root = $env:GITHUB_WORKSPACE
+          $ownPy = Join-Path $root ".python32\tools\python.exe"
+          $venvPy = Join-Path $root ".venv\Scripts\python.exe"
+          $probe = "import struct, sys; print('%d.%d.%d %d' % (sys.version_info[:3] + (struct.calcsize('P') * 8,)))"
+          foreach ($exe in $ownPy, $venvPy) {
+            $out = & $exe -c $probe
+            if ($LASTEXITCODE -ne 0) { throw "$exe does not run" }
+            Write-Host "$exe -> $out"
+            $version, $bits = "$out".Trim().Split(" ")
+            if ($bits -ne "32" -or $version -ne $PrivateVersion) { throw "$exe is $out; expected $PrivateVersion, 32-bit" }
+          }
+          $cfg = @(Get-Content -LiteralPath (Join-Path $root ".venv\pyvenv.cfg"))
+          $cfg | ForEach-Object { Write-Host "pyvenv.cfg: $_" }
+          $venvHome = (@($cfg | Where-Object { $_ -match '^\s*home\s*=' })[0] -replace '^\s*home\s*=\s*', '').Trim().TrimEnd('\')
+          if ($venvHome -ne (Join-Path $root ".python32\tools")) { throw ".venv was made from '$venvHome', not from .python32\tools" }
+          & $venvPy -c "import pyodbc, busy_mcp; print('pyodbc', pyodbc.version, 'busy_mcp', busy_mcp.__version__, pyodbc.drivers())"
+          if ($LASTEXITCODE -ne 0) { throw "pyodbc or busy_mcp does not load in .venv" }
+          $listed = @(Get-InstalledPythons $root | Where-Object { $_.Path -eq $ownPy })
+          if ($listed.Count -ne 1) { throw "the installer does not list .python32 among the installed Pythons" }
+          Write-Host "Listed among the installed Pythons: $($listed[0].Path)"
+          foreach ($left in @(Get-ChildItem -LiteralPath (Join-Path $root ".python32") -Force | Where-Object { $_.Name -ne "tools" })) {
+            Write-Host "::warning::left over in .python32 after the download: $($left.Name)"
+          }
+          exit 0
+      - name: Run install.cmd again, which reuses .python32 and keeps .venv
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $marker = Join-Path $env:GITHUB_WORKSPACE ".python32\ci-marker.txt"
+          Set-Content -LiteralPath $marker -Value "a new download would delete this file"
+          $cfg = Join-Path $env:GITHUB_WORKSPACE ".venv\pyvenv.cfg"
+          $before = (Get-Item -LiteralPath $cfg).LastWriteTimeUtc
+          & .\install.cmd -SkipSetup -BootstrapPython -Yes
+          if ($LASTEXITCODE -ne 0) { throw "the second run failed" }
+          if (-not (Test-Path -LiteralPath $marker)) { throw ".python32 was downloaded again instead of being reused" }
+          if ((Get-Item -LiteralPath $cfg).LastWriteTimeUtc -ne $before) { throw ".venv was rebuilt although the Python did not change" }
+          Write-Host "Reused .python32 and .venv"
+          exit 0
+      - uses: actions/setup-python@v7
+        id: py32
+        with:
+          python-version: "3.14"
+          architecture: x86
+      - name: Another Python (-Python) and back to .python32 (-BootstrapPython) each rebuild .venv, without a new download
+        shell: powershell
+        env:
+          PY32: ${{ steps.py32.outputs.python-path }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          . .\scripts\install.ps1   # for Get-VenvHome
+          $root = $env:GITHUB_WORKSPACE
+          $marker = Join-Path $root ".python32\ci-marker.txt"
+          & .\install.cmd -SkipSetup -Python $env:PY32
+          if ($LASTEXITCODE -ne 0) { throw "install.cmd -Python failed" }
+          $venvHome = (Get-VenvHome (Join-Path $root ".venv")).TrimEnd('\')
+          if ($venvHome -ne (Split-Path -Parent $env:PY32)) { throw ".venv was not rebuilt with $env:PY32 (home is $venvHome)" }
+          Write-Host ".venv now comes from $venvHome"
+          & .\install.cmd -SkipSetup -BootstrapPython -Yes
+          if ($LASTEXITCODE -ne 0) { throw "install.cmd -BootstrapPython failed" }
+          $venvHome = (Get-VenvHome (Join-Path $root ".venv")).TrimEnd('\')
+          if ($venvHome -ne (Join-Path $root ".python32\tools")) { throw ".venv was not rebuilt with .python32 (home is $venvHome)" }
+          if (-not (Test-Path -LiteralPath $marker)) { throw ".python32 was downloaded again instead of being reused" }
+          & (Join-Path $root ".venv\Scripts\python.exe") -c "import pyodbc, busy_mcp; print('back on .python32, imports ok')"
+          if ($LASTEXITCODE -ne 0) { throw "pyodbc or busy_mcp does not load after switching back" }
+          exit 0
+
   access:
     name: Reports on a real Microsoft Access database (Windows, 32-bit)
     runs-on: windows-latest
@@ -143,4 +225,226 @@ jobs:
       # Microsoft's own Access ODBC driver, exactly like a user's BUSY data.
       - name: Reports, every MCP tool and the fast index against the Access database
         run: |
-          python -m pytest --backend access -s -W error::ResourceWarning tests/unit/test_reports.py tests/unit/test_features.py tests/unit/test_app.py tests/unit/test_index_and_freshness.py
+          python -m pytest --backend access -s -W error::ResourceWarning tests/unit/test_reports.py tests/unit/test_features.py tests/unit/test_app.py tests/unit/test_index_and_freshness.py tests/unit/test_verify.py
+
+  access-ace:
+    name: Reports through the Access Database Engine (ACE, ${{ matrix.format }} file, Windows, 32-bit)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        format: [mdb, accdb]
+    env:
+      # Microsoft Access Database Engine 2016 Redistributable, x86, from Microsoft's download center only.
+      ACE_URL: https://download.microsoft.com/download/3/5/C/35C84C36-661A-44E6-9324-8786B8DBE231/accessdatabaseengine.exe
+      # SHA256 of that file as pinned by DomGries/InnoDependencyInstaller. Shown for comparison only; the gate is
+      # Microsoft's Authenticode signature.
+      ACE_KNOWN_SHA256: adc0504656f390d225530ac09f1fc2113295c4f9baeffea1e983fecf4ac960f0
+      ACE_DRIVER: Microsoft Access Driver (*.mdb, *.accdb)
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          architecture: x86
+      - name: Install the Access Database Engine 2016 Redistributable (x86) from Microsoft
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ProgressPreference = "SilentlyContinue"
+          $exe = Join-Path $env:RUNNER_TEMP "accessdatabaseengine.exe"
+          try {
+            Invoke-WebRequest -Uri $env:ACE_URL -OutFile $exe -MaximumRetryCount 3 -RetryIntervalSec 10
+          } catch {
+            Write-Host "::error::Could not download the Access Database Engine 2016 Redistributable (x86) from Microsoft ($env:ACE_URL): $($_.Exception.Message). Microsoft may have moved or retired it; set ACE_URL to Microsoft's current official link. Do not use an unofficial copy."
+            exit 1
+          }
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash.ToLowerInvariant()
+          $sig = Get-AuthenticodeSignature -LiteralPath $exe
+          $signer = if ($sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { "(none)" }
+          Write-Host "Downloaded $((Get-Item -LiteralPath $exe).Length) bytes from $env:ACE_URL"
+          Write-Host "SHA256: $hash (known x86 build: $env:ACE_KNOWN_SHA256; same: $($hash -eq $env:ACE_KNOWN_SHA256))"
+          Write-Host "Authenticode signature: $($sig.Status); signer: $signer"
+          if ($sig.Status -ne "Valid") {
+            Write-Host "::error::The installer's Authenticode signature is $($sig.Status), not Valid: $($sig.StatusMessage)"
+            exit 1
+          }
+          if ($signer -notmatch "O=Microsoft Corporation") {
+            Write-Host "::error::The installer is not signed by Microsoft (signer: $signer)"
+            exit 1
+          }
+          if ($hash -ne $env:ACE_KNOWN_SHA256) {
+            Write-Host "::warning::The Microsoft-signed installer differs from the known x86 build; continuing"
+          }
+          $p = Start-Process -FilePath $exe -ArgumentList "/quiet" -Wait -PassThru
+          $code = $p.ExitCode
+          Write-Host "Installer exit code: $code (0 = installed; 3010 = installed, restart requested)"
+          if ($null -ne $code -and $code -notin @(0, 3010)) {
+            Write-Host "::error::The Access Database Engine installer failed with exit code $code"
+            exit 1
+          }
+          # 32-bit ODBC drivers are registered under WOW6432Node. Allow the installer's own child processes to finish.
+          $key = "HKLM:\SOFTWARE\WOW6432Node\ODBC\ODBCINST.INI\$env:ACE_DRIVER"
+          $deadline = (Get-Date).AddMinutes(2)
+          while (-not (Test-Path -LiteralPath $key) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 5 }
+          if (-not (Test-Path -LiteralPath $key)) {
+            Write-Host "::error::The 32-bit ODBC driver '$env:ACE_DRIVER' is not registered after the installation"
+            exit 1
+          }
+          Write-Host "32-bit ODBC driver '$env:ACE_DRIVER': $((Get-ItemProperty -LiteralPath $key).Driver)"
+      - name: Install from ready-made packages only, as the installer does
+        run: |
+          python -m pip install "--only-binary=:all:" . pytest
+      - name: 32-bit Python sees the Access Database Engine's ODBC driver
+        shell: python
+        run: |
+          import os, struct, sys
+          import pyodbc
+          drivers = pyodbc.drivers()
+          print(f"{struct.calcsize('P') * 8}-bit Python {sys.version.split()[0]}, pyodbc {pyodbc.version}; ODBC drivers: {drivers}")
+          if struct.calcsize("P") != 4:
+              sys.exit("FAIL: this job must use 32-bit Python")
+          if os.environ["ACE_DRIVER"] not in drivers:
+              sys.exit(f"FAIL: 32-bit Python does not see {os.environ['ACE_DRIVER']!r}")
+      # The test company is built as a password-protected Access file in BUSY's layout by the Access Database Engine's
+      # ODBC driver, in the matrix's format; busy-mcp then reads it through that same driver, as on most BUSY PCs.
+      - name: Reports, every MCP tool and the fast index through ACE (${{ matrix.format }} file)
+        run: |
+          python -m pytest --backend access --access-driver ace --access-format ${{ matrix.format }} -s -W error::ResourceWarning tests/unit/test_reports.py tests/unit/test_features.py tests/unit/test_app.py tests/unit/test_index_and_freshness.py tests/unit/test_verify.py
+      # The installed busy-mcp's doctor on the same kind of file, through ACE and through Windows' Jet driver. Jet must
+      # read the .mdb file, and fail on the .accdb file with "Unrecognized database format" and the ACE fix.
+      - name: busy-mcp doctor through ACE and through Jet (${{ matrix.format }} file)
+        shell: python
+        env:
+          ACCESS_FORMAT: ${{ matrix.format }}
+        run: |
+          import os, subprocess, sys, tempfile
+          sys.path.insert(0, "tests")
+          import pyodbc
+          pyodbc.pooling = False  # before the first ODBC call, so the built file can be renamed
+          from fixtures.busy_fixture import build
+          from fixtures.jet_fixture import access_driver, build_access_company
+          fmt = os.environ["ACCESS_FORMAT"]
+          ace, jet = access_driver("ace", fmt), access_driver("jet", "mdb")
+          root = tempfile.mkdtemp()
+          sqlite = build(os.path.join(root, "db12024.sqlite"))
+          data_dir, password = build_access_company(sqlite, root, ace, fmt, require_password=True)
+
+          def doctor(driver):
+              env = {**os.environ, "BUSY_BACKEND": "access", "BUSY_DATA_DIR": data_dir, "BUSY_FY": "2024",
+                     "BUSY_ACCESS_PASSWORD": password, "BUSY_ACCESS_DRIVER": driver,
+                     "BUSY_MCP_CONFIG": os.path.join(root, "config.json")}
+              run = subprocess.run([sys.executable, "-m", "busy_mcp", "doctor"], env=env, capture_output=True,
+                                   text=True)
+              print(f"--- busy-mcp doctor with BUSY_ACCESS_DRIVER={driver}: exit code {run.returncode}")
+              print(run.stdout + run.stderr)
+              return run.returncode, run.stdout
+
+          problems = []
+          code, out = doctor(ace)
+          if code != 0 or f"busy-mcp will use '{ace}'" not in out or f"File format of COMP0001/2024: .{fmt} (" not in out:
+              problems.append("doctor through ACE must pass, use ACE and show the file format")
+          code, out = doctor(jet)
+          if fmt == "mdb" and (code != 0 or f"busy-mcp will use '{jet}'" not in out):
+              problems.append("doctor through Jet must read the .mdb file")
+          if fmt == "accdb" and (code != 1 or not ("Unrecognized database format" in out or "(-1028)" in out)
+                                 or "[INFO] Fix: this BUSY file needs the Microsoft Access Database Engine (ACE)" not in out):
+              problems.append("doctor through Jet must fail on the .accdb file with the ACE fix")
+          if problems:
+              sys.exit("FAIL: " + "; ".join(problems))
+          print("doctor checks passed")
+
+  scale-network:
+    name: Large company in a network folder (Access over SMB, Windows, 32-bit)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          architecture: x86
+      - name: Install from ready-made packages only, as the installer does
+        run: |
+          python -m pip install "--only-binary=:all:" . pytest
+      # 50,000 sales vouchers (200,000 voucher lines, 50,000 bill references) in a password-protected Access
+      # file in BUSY's layout: RUNNER_TEMP\busy\DATA\COMP0001\db12024.bds
+      - name: Build a large company in BUSY's layout
+        timeout-minutes: 30
+        run: |
+          python scripts/benchmark_access.py --root "$env:RUNNER_TEMP\busy" --vouchers 50000 --build-only
+          if ($LASTEXITCODE -ne 0) { throw "building the benchmark company failed" }
+      # Many offices open BUSY's data from another PC as \\SERVER\share\DATA. Share the folder over SMB and read it
+      # through Windows' network redirector (a loopback to this runner: it proves the path, not LAN latency).
+      - name: Share the data folder over SMB
+        id: share
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "busy"
+          $server = Get-Service LanmanServer
+          Write-Host "SMB server service: $($server.Status)"
+          if ($server.Status -ne "Running") { Start-Service LanmanServer }
+          $named = $false
+          try {
+            New-SmbShare -Name busydata -Path $root -FullAccess Everyone -ErrorAction Stop | Out-Null
+            Write-Host "Option 1: New-SmbShare busydata -> $root"
+            $named = $true
+          } catch {
+            Write-Host "Option 1: New-SmbShare failed: $($_.Exception.Message)"
+            net share "busydata=$root" "/GRANT:Everyone,FULL"
+            $named = $LASTEXITCODE -eq 0
+            Write-Host "Option 1b: net share busydata -> $root $(if ($named) { 'worked' } else { "failed ($LASTEXITCODE)" })"
+          }
+          $candidates = @()
+          if ($named) { $candidates += "\\localhost\busydata\DATA", "\\127.0.0.1\busydata\DATA" }
+          $candidates += ('\\localhost\{0}${1}\DATA' -f $root.Substring(0, 1), $root.Substring(2))  # option 2
+          $working = @()
+          foreach ($path in $candidates) {
+            $ok = Test-Path -LiteralPath (Join-Path $path "COMP0001\db12024.bds")
+            Write-Host ("{0,-45} {1}" -f $path, $(if ($ok) { "works" } else { "does NOT work" }))
+            if ($ok) { $working += $path }
+          }
+          $use = @($working | Where-Object { $_ -like "*\busydata\*" })
+          if ($use.Count -eq 0) { $use = @($working | Select-Object -First 1) }
+          if ($use.Count -eq 0) { throw "no UNC path to the data folder works on this runner" }
+          Write-Host "Benchmarking through: $($use -join ', ')"
+          "NETWORK_DATA_DIR=$($use[0])" >> $env:GITHUB_ENV
+          "NETWORK_DATA_DIRS=$($use -join ';')" >> $env:GITHUB_ENV
+          exit 0   # a failed 'net share' above must not decide this step's result
+      - name: Benchmark the local folder and the network folder
+        timeout-minutes: 30
+        run: |
+          $cli = @("scripts/benchmark_access.py", "--data-dir", (Join-Path $env:RUNNER_TEMP "busy\DATA"))
+          foreach ($path in ($env:NETWORK_DATA_DIRS -split ";")) { $cli += @("--data-dir", $path) }
+          $cli += @("--json", (Join-Path $env:RUNNER_TEMP "busy-benchmark.json"), "--summary-md", $env:GITHUB_STEP_SUMMARY)
+          $cli += @("--assert-max-seconds", "index=180", "--assert-max-seconds", "reports=10")
+          $cli += @("--assert-max-seconds", "change_check_again=10")
+          python @cli
+          if ($LASTEXITCODE -ne 0) { throw "benchmark failed: see the FAIL, ERROR and LIMIT lines above" }
+      - name: Setup and doctor with the network folder, from another working folder
+        if: ${{ !cancelled() && steps.share.outcome == 'success' }}
+        timeout-minutes: 15
+        run: |
+          $unc = $env:NETWORK_DATA_DIR
+          Push-Location $env:RUNNER_TEMP   # AI apps start busy-mcp from another folder
+          try {
+            python -m busy_mcp setup --data-dir $unc --yes --no-claude
+            if ($LASTEXITCODE -ne 0) { throw "setup failed with the network folder $unc" }
+            $saved = (Get-Content (Join-Path $env:APPDATA "busy-mcp\config.json") -Raw | ConvertFrom-Json).data_dir
+            Write-Host "Saved data_dir: $saved"
+            if ($saved -ne $unc) { throw "setup saved data_dir '$saved' instead of '$unc'" }
+            $out = python -m busy_mcp doctor
+            $code = $LASTEXITCODE
+            $out | ForEach-Object { Write-Host $_ }
+            if ($code -ne 0) { throw "doctor exited with $code" }
+            if (-not ($out -match "Result: ready")) { throw "doctor did not print 'Result: ready'" }
+          } finally {
+            Pop-Location
+          }
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: scale-network-results
+          path: ${{ runner.temp }}/busy-benchmark.json

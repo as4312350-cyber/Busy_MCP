@@ -27,7 +27,7 @@ server at start-up with a message naming the setting.
 | `BUSY_BACKEND` | `auto` | `access`, `sqlserver`, `odbc` or `sqlite` (tests). `auto` picks `odbc` if a connection string is set, otherwise `sqlserver` if a server is set, otherwise `access` |
 | `BUSY_DATA_DIR` | `C:\BusyWin\DATA` | Access edition. BUSY > Company > *Set Data Directory* shows it |
 | `BUSY_ACCESS_PASSWORD` | BUSY's standard `.bds` password | Change only if your files use another one |
-| `BUSY_ACCESS_DRIVER` | `Microsoft Access Driver (*.mdb, *.accdb)` | Any installed Access driver is used as a fallback |
+| `BUSY_ACCESS_DRIVER` | `Microsoft Access Driver (*.mdb, *.accdb)` | If it isn't installed, another Access driver is used, the Access Database Engine's first. `busy-mcp doctor` shows which |
 | `BUSY_SQL_SERVER` | – | e.g. `localhost\SQLEXPRESS` or `192.168.1.10,1433` |
 | `BUSY_SQL_USER` / `BUSY_SQL_PASSWORD` | – | Leave both empty for Windows authentication (recommended) |
 | `BUSY_SQL_DRIVER` | newest `ODBC Driver NN for SQL Server` | |
@@ -80,5 +80,7 @@ server at start-up with a message naming the setting.
 busy-mcp                  run the MCP server over stdio (what AI apps launch)
 busy-mcp setup            guided setup (find BUSY, test, save settings, connect Claude Desktop)
 busy-mcp doctor           diagnose Python, drivers, data, configuration
+busy-mcp verify           check the numbers on your own data and list five to compare with BUSY
+                          (--party, --item, --company, --fy, --redact, --json, --out FILE)
 busy-mcp serve --http     serve over HTTP for remote clients (token required)
 ```
