@@ -3,6 +3,23 @@
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.2.1] — 2026-11-03
+
+### Added
+- **One command installs everything.** Paste one line into PowerShell
+  (`irm https://raw.githubusercontent.com/as4312350-cyber/Busy_MCP/main/scripts/get.ps1 | iex`).
+  `scripts/get.ps1` downloads busy-mcp into `%USERPROFILE%\Busy_MCP`, runs the installer, and keeps your
+  environment and settings when run again to update.
+- **The installer no longer asks anything.** If no suitable Python is installed, it downloads the official
+  32-bit Python 3.14 into the project folder by itself (it used to ask Y/n).
+- **The installer adds the Access Database Engine when BUSY's file needs it.** `busy-mcp setup` now exits with
+  code 3 when a file can't be opened by the installed drivers because of its format. `install.cmd` then
+  downloads Microsoft's Access Database Engine (x86), refuses it unless it is signed by Microsoft Corporation,
+  installs it (Windows asks permission once) and runs setup again. `-InstallAce` does only that step.
+- CI jobs on Windows: **one-command** (a 64-bit-only runner, nothing prepared: the 32-bit Python is
+  downloaded and busy-mcp works; a second run keeps the environment) and **installer-ace** (a BUSY file in
+  the `.accdb` format makes the installer install ACE; then setup and doctor read a real `.accdb` file).
+
 ## [1.2.0] — 2026-11-02
 
 ### Added

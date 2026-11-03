@@ -3,7 +3,7 @@
 # Normally started by double-clicking install.cmd in the project folder.
 # Advanced use:
 #   powershell -ExecutionPolicy Bypass -File scripts\install.ps1 [-DataDir C:\BusyWin\DATA] [-SqlServer HOST\INSTANCE]
-#              [-Python C:\path\to\python.exe | -BootstrapPython] [-Yes] [-SkipSetup]
+#              [-Python C:\path\to\python.exe | -BootstrapPython] [-InstallAce] [-Yes] [-SkipSetup]
 #
 # Which Python is used, when several are installed:
 #   1. a version for which every dependency has ready-made Windows packages (3.10 to 3.14 today);
@@ -11,7 +11,10 @@
 #   3. the private Python in .python32 (see below), once the installer has downloaded it;
 #   4. the newest version.
 # When that leaves no Python that can work (none at all, only Python 3.15 or newer, or only 64-bit Python while
-# the Access driver is 32-bit), the installer offers to download the private Python and then uses it.
+# the Access driver is 32-bit), the installer downloads the private Python by itself and uses it.
+# If BUSY's files turn out to need the Microsoft Access Database Engine (ACE) and this PC lacks it, the installer
+# downloads ACE from Microsoft, checks Microsoft's signature, installs it (Windows asks for permission once) and
+# runs setup again. -InstallAce does only that step.
 # -BootstrapPython uses the private Python whatever else is installed, downloading it if needed.
 # Running the installer again with a different Python rebuilds the private environment (.venv).
 param(
@@ -19,7 +22,8 @@ param(
     [string]$SqlServer = "",
     [string]$Python = "",       # use this python.exe instead of choosing one automatically
     [switch]$BootstrapPython,   # use the private Python in .python32, downloading it if needed
-    [switch]$Yes,               # accept the defaults: download without asking, and "--yes" for setup
+    [switch]$InstallAce,        # install the Microsoft Access Database Engine (x86) now, then stop
+    [switch]$Yes,               # accept the defaults in setup ("--yes"): no questions at all
     [switch]$SkipSetup          # install only; run "python -m busy_mcp setup" later (used by CI)
 )
 $ErrorActionPreference = "Stop"
@@ -40,6 +44,12 @@ $PrivateVersion = "3.14.10"
 $PrivateSha256 = "fd47b2d9fa6a5585c36ac87b65e172461fc66ee57b3b41fe2d96a3078433c9f6"
 $PrivateSizeMB = 14
 $PrivateDir = ".python32"
+
+# The Microsoft Access Database Engine 2016 Redistributable (x86), from Microsoft's download center only. CI job
+# "access-ace" installs it from this address, checks its Authenticode signature and reads BUSY-format files
+# through it. The gate here is the same: the file must be signed by Microsoft Corporation.
+$AceUrl = "https://download.microsoft.com/download/3/5/C/35C84C36-661A-44E6-9324-8786B8DBE231/accessdatabaseengine.exe"
+$AceSizeMB = 26
 
 function Get-PythonInfo([string]$Exe) {
     # Version and bitness of a python.exe, or $null if it doesn't run (e.g. the Microsoft Store placeholder).
@@ -265,17 +275,65 @@ function Install-PrivatePython([string]$Root) {
 }
 
 function Confirm-Download([string]$Question) {
-    # Asks before downloading; Enter means yes. -Yes answers yes. In CI, or when no one can type an answer
-    # (input redirected), the answer is no.
-    if ($Yes) { return $true }
-    $redirected = $true
-    try { $redirected = [Console]::IsInputRedirected } catch { }
-    if ($env:CI -or $redirected) {
-        Write-Host "$Question Not without -Yes, because no one can answer here."
+    # No question: this installer's job is to leave nothing for the user to do. It says what it is doing and goes on.
+    Write-Host ($Question -replace "\?$", ".")
+    return $true
+}
+
+function Test-Admin {
+    $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+    return ([Security.Principal.WindowsPrincipal]$id).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Test-MicrosoftSigned([string]$Path) {
+    # True only for a file with a valid Authenticode signature from Microsoft Corporation.
+    $sig = Get-AuthenticodeSignature -LiteralPath $Path
+    if ($sig.Status -ne "Valid" -or -not $sig.SignerCertificate) { return $false }
+    return ($sig.SignerCertificate.Subject -match "O=Microsoft Corporation")
+}
+
+function Install-AceDriver([int]$Bits) {
+    # Installs the Access Database Engine from Microsoft so that Python of this bitness can open BUSY's files.
+    # Returns $true when the driver is there afterwards. Windows asks for permission (UAC) once.
+    if ($Bits -ne 32) {
+        Write-Host "This installer sets up the 32-bit Access Database Engine only. For 64-bit Python, install the 64-bit" -ForegroundColor Yellow
+        Write-Host "'Microsoft Access Database Engine 2016 Redistributable' from Microsoft, or run install.cmd -BootstrapPython." -ForegroundColor Yellow
         return $false
     }
-    $answer = Read-Host "$Question [Y/n]"
-    return ("$answer".Trim() -notmatch "^n")
+    Write-Host "Downloading Microsoft's Access Database Engine (about $AceSizeMB MB) from Microsoft..."
+    $exe = Join-Path ([System.IO.Path]::GetTempPath()) "busy-mcp-accessdatabaseengine.exe"
+    try { Save-Download $AceUrl $exe }
+    catch {
+        Write-Host "The download failed: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "Install 'Microsoft Access Database Engine 2016 Redistributable' (x86) from Microsoft yourself, then run install.cmd again." -ForegroundColor Yellow
+        return $false
+    }
+    if (-not (Test-MicrosoftSigned $exe)) {
+        Remove-Item -LiteralPath $exe -Force -ErrorAction SilentlyContinue
+        Write-Host "The downloaded file is not signed by Microsoft, so it was not run." -ForegroundColor Red
+        return $false
+    }
+    Write-Host "Installing it. If Windows asks for permission, choose Yes."
+    try {
+        if (Test-Admin) { $run = Start-Process -FilePath $exe -ArgumentList "/quiet" -Wait -PassThru }
+        else { $run = Start-Process -FilePath $exe -ArgumentList "/quiet" -Wait -PassThru -Verb RunAs }
+    } catch {
+        Write-Host "The installation was not allowed or could not start: $($_.Exception.Message)" -ForegroundColor Red
+        return $false
+    } finally {
+        Remove-Item -LiteralPath $exe -Force -ErrorAction SilentlyContinue
+    }
+    if ($run.ExitCode -notin 0, 3010) {
+        Write-Host "The Access Database Engine installer stopped with code $($run.ExitCode)." -ForegroundColor Red
+        Write-Host "(Code 1638 or a message about Office means a different version of it is already installed.)" -ForegroundColor Yellow
+        return $false
+    }
+    $deadline = (Get-Date).AddMinutes(2)   # its helper processes may still be finishing
+    while ((Get-AccessDriverScore)[$Bits] -lt 2 -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 3 }
+    $ok = (Get-AccessDriverScore)[$Bits] -ge 2
+    if ($ok) { Write-Host "Microsoft Access Database Engine installed." -ForegroundColor Green }
+    else { Write-Host "The Access Database Engine did not show up in the ODBC drivers after installing." -ForegroundColor Red }
+    return $ok
 }
 
 function Write-PythonHelp {
@@ -336,11 +394,16 @@ $otherBits = if ($chosen.Bits -eq 32) { 64 } else { 32 }
 if ($driverScore[$chosen.Bits] -eq 0 -and $driverScore[$otherBits] -gt 0) {
     Write-Host "Note: the Access driver on this PC is $otherBits-bit only, so this $($chosen.Bits)-bit Python cannot read the data" -ForegroundColor Yellow
     if ($otherBits -eq 32) {
-        Write-Host "of BUSY's standard (Access) edition. Run install.cmd again and answer Y to get the 32-bit Python." -ForegroundColor Yellow
+        Write-Host "of BUSY's standard (Access) edition. Run install.cmd -BootstrapPython to use the 32-bit Python it downloads." -ForegroundColor Yellow
     } else {
         Write-Host "of BUSY's standard (Access) edition. Install Python $NewestTested (64-bit) from $Download and run install.cmd again." -ForegroundColor Yellow
     }
     Write-Host "If you use BUSY's SQL Server edition, you can ignore this." -ForegroundColor Yellow
+}
+
+if ($InstallAce) {
+    if (Install-AceDriver $chosen.Bits) { exit 0 }
+    exit 1
 }
 
 # 2. Private environment (nothing is installed system-wide), rebuilt when a different Python was chosen
@@ -376,7 +439,7 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "Installing packages failed (see messages above)." -ForegroundColor Red
     if ($chosen.Minor -gt $NewestTested) {
         Write-Host "Python $($chosen.Minor) is too new: a required package (pyodbc) has no ready-made Windows version for it yet." -ForegroundColor Red
-        Write-Host "Run install.cmd again and answer Y to download the official 32-bit Python $PrivateVersion into this folder." -ForegroundColor Red
+        Write-Host "Run install.cmd -BootstrapPython to download the official 32-bit Python $PrivateVersion into this folder." -ForegroundColor Red
     } else {
         Write-Host "Check the internet connection (and proxy settings), then run install.cmd again." -ForegroundColor Red
     }
@@ -394,6 +457,14 @@ if ($DataDir)   { $setupArgs += @("--data-dir", $DataDir) }
 if ($SqlServer) { $setupArgs += @("--sql-server", $SqlServer) }
 if ($Yes)       { $setupArgs += "--yes" }
 & $venvPy @setupArgs
+if ($LASTEXITCODE -eq 3 -and (Get-AccessDriverScore)[$chosen.Bits] -lt 2) {
+    # BUSY's file needs the Access Database Engine and this PC has none: install it from Microsoft, then try again.
+    Write-Host ""
+    if (Install-AceDriver $chosen.Bits) {
+        Write-Host "Running setup again."
+        & $venvPy @setupArgs
+    }
+}
 if ($LASTEXITCODE -ne 0) {
     Write-Host ""
     Write-Host "Setup did not finish. Diagnose with:  .venv\Scripts\python.exe -m busy_mcp doctor" -ForegroundColor Yellow

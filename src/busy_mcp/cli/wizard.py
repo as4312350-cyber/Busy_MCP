@@ -15,8 +15,23 @@ from typing import Any
 
 from ..config import Settings, read_config_file, settings_from, write_config_file
 from ..db import BusyDB, choose_target, data_folder_problem, discover_targets, find_data_dirs
+from ..db.connection import is_unrecognized_format
 from ..errors import BusyMCPError
 from .clients import claude_desktop_config_path, register_claude_desktop, snippets
+
+# Exit code of `busy-mcp setup` when BUSY's file needs the Microsoft Access Database Engine (ACE) that this PC
+# lacks. scripts/install.ps1 reacts to it by installing ACE from Microsoft and running setup again.
+EXIT_NEEDS_ACE = 3
+
+
+def _ace_installed() -> bool:
+    """True if an Access Database Engine (ACE) ODBC driver is visible to this Python."""
+    try:
+        from ..db.drivers import is_ace_driver, pyodbc_module
+
+        return any(is_ace_driver(d) for d in pyodbc_module().drivers())
+    except Exception:  # noqa: BLE001 - no pyodbc or no driver manager: treat as not installed
+        return False
 
 
 class UI:
@@ -125,6 +140,14 @@ def run_setup(args: Any, ui: UI | None = None) -> int:
         _, targets = _test(values, ui)
     except BusyMCPError as exc:
         ui.say(f"\nSetup could not read BUSY: {exc}")
+        if is_unrecognized_format(str(exc)):
+            if _ace_installed():
+                ui.say("The Microsoft Access Database Engine is installed, but could not read this file. It may be "
+                       "damaged, or newer than the engine. Check that BUSY itself opens this company.")
+            else:
+                ui.say("This BUSY file needs the Microsoft Access Database Engine (ACE), "
+                       "which is not installed for this Python.")
+                return EXIT_NEEDS_ACE
         ui.say("Run 'busy-mcp doctor' for a detailed diagnosis.")
         return 1
 

@@ -25,21 +25,34 @@ BUSY's own company files directly; it cannot change anything in BUSY.
 >
 > It hasn't been checked against every BUSY release. Run `busy-mcp verify` on your data before relying on it.
 
-## Install (Windows, about 5 minutes)
+## Install (Windows, one command, about 5 minutes)
 
-1. Download this project (green **Code** button on GitHub → **Download ZIP**) and unzip it, e.g. to
-   `C:\Busy_MCP`.
-2. **Double-click `install.cmd`.** You don't need to install Python first:
-   - If the PC has a Python that works with BUSY (3.10 to 3.14), the installer uses it.
-   - If not (no Python, only Python 3.15, or only 64-bit Python while BUSY's Access driver is 32-bit), it offers
-     to download the official **32-bit Python 3.14** (about 14 MB). Press **Enter** to accept.
+Open **PowerShell** (Start menu, type `powershell`), paste this one line and press Enter:
 
-   That Python is the one the Python Software Foundation publishes for build tools
-   ([pythonx86 on nuget.org](https://www.nuget.org/packages/pythonx86)). The installer checks the download against
-   a fixed SHA-256 fingerprint and keeps it in the `.python32` folder inside the project. Nothing is installed on
-   the PC itself, and deleting the project folder removes it.
+```powershell
+irm https://raw.githubusercontent.com/as4312350-cyber/Busy_MCP/main/scripts/get.ps1 | iex
+```
 
-The installer sets everything up and then runs `busy-mcp setup`, which:
+That's all. It downloads busy-mcp into `%USERPROFILE%\Busy_MCP` and does everything else by itself:
+
+* **Python:** uses one that works with BUSY (3.10 to 3.14). If there is none (no Python, only Python 3.15, or
+  only 64-bit Python while BUSY's Access driver is 32-bit), it downloads the official **32-bit Python 3.14**
+  (about 14 MB) into `.python32` inside that folder. Nothing is installed on the PC itself.
+* **Packages:** installs busy-mcp and its dependencies from ready-made packages. No compiler needed.
+* **Access engine:** if your BUSY files turn out to need Microsoft's Access Database Engine (only the newer
+  `.accdb` format does), it downloads it from Microsoft, checks Microsoft's signature, and installs it.
+  Windows asks permission once; choose **Yes**.
+* **BUSY and Claude:** finds your BUSY data (or SQL Server), tests it, and connects **Claude Desktop** after
+  backing up its settings.
+
+Run the same line again whenever you want to update; your settings are kept.
+
+Prefer not to run a pasted line? Download this project (green **Code** button → **Download ZIP**), unzip it
+and **double-click `install.cmd`**. It does the same thing. The Python it downloads is the one the Python
+Software Foundation publishes for build tools ([pythonx86 on nuget.org](https://www.nuget.org/packages/pythonx86));
+the installer checks it against a fixed SHA-256 fingerprint.
+
+The last step is `busy-mcp setup`, which:
 
 * finds your BUSY data folder (or SQL Server) automatically and checks it can be read;
 * asks which company to use by default, if you have several;

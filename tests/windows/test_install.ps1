@@ -135,6 +135,14 @@ $score = Get-AccessDriverScore
 if ($score.Keys.Count -ne 2) { Write-Host "FAIL  driver score"; $script:failures++ }
 else { Write-Host "ok    Access driver: $(Format-DriverScore $score)" }
 
+# Nothing is asked: downloads just go ahead. And only a file signed by Microsoft counts as Microsoft's.
+Assert-True "downloads without a question" ((Confirm-Download "Download something?") -eq $true)
+$plain = Join-Path ([System.IO.Path]::GetTempPath()) ("busy-mcp-unsigned-" + [guid]::NewGuid().ToString("N") + ".exe")
+[System.IO.File]::WriteAllText($plain, "not a program")
+try { Assert-True "an unsigned file is not accepted as Microsoft's" (-not (Test-MicrosoftSigned $plain)) }
+finally { Remove-Item -LiteralPath $plain -Force -ErrorAction SilentlyContinue }
+Assert-True "the Access engine comes from Microsoft's download center" ($AceUrl -like "https://download.microsoft.com/*")
+
 if ($script:failures) { Write-Host "$($script:failures) check(s) failed"; exit 1 }
 Write-Host "All installer checks passed"
 exit 0
